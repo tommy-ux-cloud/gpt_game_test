@@ -9,6 +9,7 @@ export const UPGRADES = [
   { key: 'hookCooldown', name: '鉤子冷卻', unit: '秒', step: '縮短 3%' },
   { key: 'hookSpeed', name: '鉤子速度', unit: ' / 秒', step: '+25' },
   { key: 'hookRange', name: '鉤子長度', unit: '射程', step: '+25' },
+  { key: 'hookDamage', name: '鉤子傷害', unit: '傷害', step: '+2' },
 ];
 const clamp = (n, a, b) => Math.max(a, Math.min(b, n));
 export function segmentHit(ax, ay, bx, by, x, y, radius) {
@@ -17,7 +18,7 @@ export function segmentHit(ax, ay, bx, by, x, y, radius) {
   return Math.hypot(ax + t * dx - x, ay + t * dy - y) <= radius;
 }
 export function upgradeValue(p, key) {
-  const additions = { maxHp: 5, regen: .1, moveSpeed: 3, hookRadius: .75, hookSpeed: 25, hookRange: 25 };
+  const additions = { maxHp: 5, regen: .1, moveSpeed: 3, hookRadius: .75, hookSpeed: 25, hookRange: 25, hookDamage: 2 };
   return key === 'hookCooldown' ? Math.max(.8, p.hookCooldown * .97) : p[key] + additions[key];
 }
 export class Arena {
@@ -36,7 +37,7 @@ export class Arena {
       { name: '幽潮', team: 1, x: RIVER.right + 130, y: H / 2 + 110 },
       { name: '鐵顎', team: 0, x: RIVER.left - 130, y: H / 2 + 110 },
     ].map((p, id) => ({ ...p, id, color: this.teams[p.team].color, hp: 100, maxHp: 100, regen: .5, moveSpeed: 185,
-      hookRadius: 8, hookCooldown: COOLDOWN, hookSpeed: 850, hookRange: HOOK_RANGE, gold: 0,
+      hookRadius: 8, hookCooldown: COOLDOWN, hookSpeed: 850, hookRange: HOOK_RANGE, hookDamage: 55, gold: 0,
       levels: Object.fromEntries(UPGRADES.map(u => [u.key, 0])), kills: 0, streak: 0, deaths: 0, cooldown: 0, dead: 0,
       shield: 1.5, angle: p.team ? Math.PI : 0, vx: 0, vy: 0, aiTimer: 1 + id * .7, phase: id * 1.8, pull: null, moveTarget: null }));
   }
@@ -73,7 +74,7 @@ export class Arena {
     p.angle = angle; p.cooldown = p.hookCooldown;
     this.hooks.push({ owner: id, x: p.x, y: p.y, dx: Math.cos(angle), dy: Math.sin(angle), distance: 0,
       returning: false, victim: null, hasHit: false, range: p.hookRange, speed: p.hookSpeed,
-      returnSpeed: p.hookSpeed * 1080 / 850, radius: p.hookRadius });
+      returnSpeed: p.hookSpeed * 1080 / 850, radius: p.hookRadius, damage: p.hookDamage });
     this.events.push({ type: 'fire', x: p.x, y: p.y, color: p.color }); return true;
   }
   move(p, dx, dy, dt) {
@@ -86,7 +87,7 @@ export class Arena {
     const owner = this.players[h.owner];
     if (this.winner !== null || h.hasHit || !owner || !this.players.includes(target) || target.hp <= 0) return;
     h.hasHit = true; h.x = target.x; h.y = target.y;
-    const damage = owner.team === target.team ? 0 : 55;
+    const damage = owner.team === target.team ? 0 : (h.damage ?? owner.hookDamage);
     target.hp = Math.max(0, target.hp - damage);
     this.events.push({ type: 'hit', x: target.x, y: target.y, color: target.color, damage });
     this.stopMove(target.id);

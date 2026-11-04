@@ -154,14 +154,14 @@ test('shop rejects insufficient money, distance, dead/pulled players, invalid it
   atShop(g); p.hp = 0; assert.equal(g.buy(0, 'maxHp'), false);
   p.hp = 100; p.pull = {}; assert.equal(g.buy(0, 'maxHp'), false); assert.equal(p.gold, 1); assert.equal(p.maxHp, 100);
 });
-test('all seven upgrades cost one coin each and apply conservative increments', () => {
-  const g = new Arena(), p = atShop(g); p.gold = 7;
+test('all eight upgrades cost one coin each and apply conservative increments', () => {
+  const g = new Arena(), p = atShop(g); p.gold = 8;
   const before = { ...p };
   for (const u of UPGRADES) { const gold = p.gold; assert.equal(g.buy(0, u.key), true); assert.equal(p.gold, gold - 1); assert.equal(p.levels[u.key], 1); }
   assert.equal(p.maxHp, before.maxHp + 5); assert.equal(p.hp, 105);
   assert.equal(p.regen, before.regen + .1); assert.equal(p.moveSpeed, before.moveSpeed + 3);
   assert.equal(p.hookRadius, before.hookRadius + .75); assert.equal(p.hookCooldown, before.hookCooldown * .97);
-  assert.equal(p.hookSpeed, before.hookSpeed + 25); assert.equal(p.hookRange, before.hookRange + 25); assert.equal(p.gold, 0);
+  assert.equal(p.hookSpeed, before.hookSpeed + 25); assert.equal(p.hookRange, before.hookRange + 25); assert.equal(p.hookDamage, before.hookDamage + 2); assert.equal(p.gold, 0);
 });
 test('purchased regeneration and movement speed affect actual simulation', () => {
   const g = isolated(), p = atShop(g); p.regen = .5; p.gold = 2;
@@ -274,4 +274,33 @@ test('upgrades still cost one coin even when funded by shutdown bounty', () => {
   const g = new Arena(); g.players[1].streak = 3; scoreKill(g, 0, 1);
   const p = atShop(g); assert.equal(p.gold, 4); assert.equal(g.buy(0, 'moveSpeed'), true);
   assert.equal(p.gold, 3); assert.equal(p.streak, 1);
+});
+
+test('purchased hook damage applies to outgoing enemy hits and damage events', () => {
+  const g = battle(), [owner, target] = g.players; atShop(g); owner.gold = 1;
+  assert.equal(g.buy(0, 'hookDamage'), true); assert.equal(owner.hookDamage, 57); assert.equal(owner.gold, 0);
+  owner.x = RIVER.left - 130; target.x = RIVER.right + 130; owner.y = target.y = H / 2;
+  g.fire(0, target.x, target.y); advance(g, 1);
+  assert.equal(target.hp, 43); assert.equal(g.events.find(e => e.type === 'hit').damage, 57);
+});
+test('upgraded returning hook deals damage once and still does not hurt allies', () => {
+  for (const allied of [false, true]) {
+    const g = battle(), [owner, target] = g.players; atShop(g); owner.gold = 1; g.buy(0, 'hookDamage');
+    owner.x = 500; owner.y = H / 2; target.x = 900; target.y = owner.y + 100;
+    if (allied) target.team = owner.team;
+    g.fire(0, 1500, owner.y);
+    for (let i = 0; i < 120 && !g.hooks[0]?.returning; i++) g.tick(1 / 60);
+    assert.equal(target.hp, 100); target.x = 1000; target.y = owner.y; advance(g, 1);
+    assert.equal(target.hp, allied ? 100 : 43); assert.equal(g.events.filter(e => e.type === 'hit').length, 1);
+    assert.equal(owner.gold, 0);
+  }
+});
+test('damage purchases affect future casts while an existing projectile keeps its original damage', () => {
+  const g = battle(), [owner, target] = g.players; atShop(g); owner.gold = 1;
+  target.x = 600; target.y = owner.y; g.fire(0, 900, owner.y);
+  const h = g.hooks[0]; g.buy(0, 'hookDamage'); assert.equal(h.damage, 55); assert.equal(owner.hookDamage, 57);
+  advance(g, 3); assert.equal(target.hp, 45);
+  target.hp = 100; g.fire(0, target.x, target.y); advance(g, .5); assert.equal(target.hp, 43);
+  owner.hp = 0; owner.dead = .01; advance(g, .1); assert.equal(owner.hookDamage, 57); assert.equal(owner.levels.hookDamage, 1);
+  assert.equal(new Arena().players[0].hookDamage, 55);
 });
