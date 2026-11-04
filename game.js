@@ -1,8 +1,9 @@
-import { Arena, W, H, COOLDOWN } from './engine.js';
+import { Arena, W, H, COOLDOWN, RIVER, HOOK_RANGE } from './engine.js';
 
 const $ = id => document.getElementById(id);
 const canvas = $('arena'), ctx = canvas.getContext('2d');
-let game = new Arena(), state = 'menu', aim = { x: 600, y: 200 }, particles = [], numbers = [], sound = false, audio;
+canvas.width = W; canvas.height = H;
+let game = new Arena(), state = 'menu', aim = { x: W / 2, y: RIVER.top - 150 }, particles = [], numbers = [], sound = false, audio;
 let seed = 81;
 const rand = () => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; };
 const floor = document.createElement('canvas'); floor.width = W; floor.height = H;
@@ -18,16 +19,16 @@ for (let y = 0; y < H; y += 52) for (let x = -60; x < W; x += 74) {
 }
 for (let i = 0; i < 2400; i++) { f.fillStyle = rand() > .5 ? '#9aad6820' : '#0a190b20'; f.fillRect(rand() * W, rand() * H, rand() * 4 + 1, 2); }
 // River, masonry banks, and the arena's worn central sigil.
-f.fillStyle = '#142e2e'; f.fillRect(0, 310, W, 130);
-for (const y of [299, 440]) for (let x = -10; x < W; x += 61) {
+f.fillStyle = '#142e2e'; f.fillRect(0, RIVER.top, W, RIVER.bottom - RIVER.top);
+for (const y of [RIVER.top - 11, RIVER.bottom]) for (let x = -10; x < W; x += 61) {
   f.fillStyle = '#151f1b'; f.fillRect(x, y, 59, 16);
   f.fillStyle = '#566048'; f.fillRect(x + 2, y, 55, 8);
   f.fillStyle = '#78836744'; f.fillRect(x + 4, y, 50, 2);
 }
-for (const y of [155, 565]) {
-  f.strokeStyle = '#b0bc6a18'; f.lineWidth = 3; f.beginPath(); f.arc(600, y, 83, 0, Math.PI * 2); f.stroke();
-  f.beginPath(); f.arc(600, y, 68, 0, Math.PI * 2); f.stroke();
-  f.save(); f.translate(600, y); f.rotate(Math.PI / 4); f.strokeRect(-36, -36, 72, 72); f.restore();
+for (const y of [RIVER.top / 2, (RIVER.bottom + H) / 2]) {
+  f.strokeStyle = '#b0bc6a18'; f.lineWidth = 3; f.beginPath(); f.arc(W / 2, y, 83, 0, Math.PI * 2); f.stroke();
+  f.beginPath(); f.arc(W / 2, y, 68, 0, Math.PI * 2); f.stroke();
+  f.save(); f.translate(W / 2, y); f.rotate(Math.PI / 4); f.strokeRect(-36, -36, 72, 72); f.restore();
 }
 // Edge foliage and boundary stones.
 for (let i = 0; i < 160; i++) {
@@ -67,9 +68,9 @@ function events() {
 function circle(x, y, r, color) { ctx.fillStyle = color; ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill(); }
 function draw(t) {
   ctx.clearRect(0, 0, W, H); ctx.drawImage(floor, 0, 0);
-  ctx.save(); ctx.beginPath(); ctx.rect(0, 316, W, 123); ctx.clip();
+  ctx.save(); ctx.beginPath(); ctx.rect(0, RIVER.top + 6, W, RIVER.bottom - RIVER.top - 7); ctx.clip();
   for (let i = 0; i < 40; i++) {
-    const x = (i * 67 + t * (12 + i % 4)) % (W + 120) - 60, y = 325 + (i * 29) % 110;
+    const x = (i * 67 + t * (12 + i % 4)) % (W + 120) - 60, y = RIVER.top + 15 + (i * 29) % (RIVER.bottom - RIVER.top - 20);
     ctx.strokeStyle = i % 3 ? '#71998a16' : '#a3c0a927'; ctx.lineWidth = 1;
     ctx.beginPath(); ctx.moveTo(x, y); ctx.bezierCurveTo(x + 13, y - 3, x + 30, y + 3, x + 46, y); ctx.stroke();
   }
@@ -82,7 +83,7 @@ function draw(t) {
     ctx.beginPath(); ctx.moveTo(-5, 0); ctx.lineTo(0, 4); ctx.lineTo(6, -4); ctx.stroke(); ctx.restore();
   }
   if (state === 'playing' && game.players[0].hp > 0 && !game.players[0].pull) {
-    const p = game.players[0], a = Math.atan2(aim.y - p.y, aim.x - p.x), d = Math.min(820, Math.hypot(aim.x - p.x, aim.y - p.y));
+    const p = game.players[0], a = Math.atan2(aim.y - p.y, aim.x - p.x), d = Math.min(HOOK_RANGE, Math.hypot(aim.x - p.x, aim.y - p.y));
     ctx.strokeStyle = '#d6ed9030'; ctx.setLineDash([4, 10]); ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(p.x + Math.cos(a) * d, p.y + Math.sin(a) * d); ctx.stroke(); ctx.setLineDash([]);
     ctx.strokeStyle = '#d6ed9099'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(aim.x, aim.y, 11, 0, 7); ctx.stroke();
     ctx.beginPath(); ctx.moveTo(aim.x - 17, aim.y); ctx.lineTo(aim.x - 7, aim.y); ctx.moveTo(aim.x + 7, aim.y); ctx.lineTo(aim.x + 17, aim.y); ctx.moveTo(aim.x, aim.y - 17); ctx.lineTo(aim.x, aim.y - 7); ctx.stroke();
@@ -121,9 +122,9 @@ function draw(t) {
   for (const p of particles) { ctx.globalAlpha = Math.max(0, p.life); circle(p.x, p.y, 2.5, p.color); } ctx.globalAlpha = 1;
   for (const n of numbers) { ctx.globalAlpha = Math.min(1, n.life * 2); ctx.fillStyle = '#f2d1a4'; ctx.font = 'bold 22px monospace'; ctx.textAlign = 'center'; ctx.fillText(n.text, n.x, n.y); } ctx.globalAlpha = 1;
   // Soft edge vignette keeps the action in focus.
-  const vignette = ctx.createRadialGradient(600, 360, 250, 600, 360, 720); vignette.addColorStop(0, '#06100900'); vignette.addColorStop(1, '#061009aa'); ctx.fillStyle = vignette; ctx.fillRect(0, 0, W, H);
+  const vignette = ctx.createRadialGradient(W / 2, H / 2, W * .22, W / 2, H / 2, W * .65); vignette.addColorStop(0, '#06100900'); vignette.addColorStop(1, '#061009aa'); ctx.fillStyle = vignette; ctx.fillRect(0, 0, W, H);
   if (game.players[0].hp <= 0 && state === 'playing') {
-    ctx.fillStyle = '#101b14cc'; ctx.fillRect(390, 200, 420, 85); ctx.textAlign = 'center'; ctx.font = 'bold 23px Arial'; ctx.fillStyle = '#d6ed90'; ctx.fillText(`重新集結 · ${Math.ceil(game.players[0].dead)} 秒後重生`, 600, 250);
+    ctx.fillStyle = '#101b14cc'; ctx.fillRect(W / 2 - 210, H / 2 - 120, 420, 85); ctx.textAlign = 'center'; ctx.font = 'bold 23px Arial'; ctx.fillStyle = '#d6ed90'; ctx.fillText(`重新集結 · ${Math.ceil(game.players[0].dead)} 秒後重生`, W / 2, H / 2 - 70);
   }
 }
 let scoreCache = '';
@@ -151,6 +152,13 @@ $('play-button').onclick = () => {
   state = 'playing'; $('overlay').hidden = true; $('pause-button').textContent = 'Ⅱ'; canvas.focus();
 };
 $('pause-button').onclick = pause;
+$('fullscreen-button').onclick = () => {
+  const expanded = $('arena-shell').classList.toggle('expanded');
+  document.body.classList.toggle('arena-expanded', expanded);
+  $('fullscreen-button').textContent = expanded ? '返回一般畫面' : '放大競技場';
+  $('fullscreen-button').setAttribute('aria-pressed', String(expanded));
+  canvas.focus();
+};
 $('sound-button').onclick = () => { sound = !sound; if (sound) { audio ||= new AudioContext(); audio.resume(); tone(400); } $('sound-button').textContent = `音效 ${sound ? '開' : '關'}`; $('sound-button').setAttribute('aria-label', sound ? '關閉音效' : '開啟音效'); };
 let helpPaused = false;
 $('help-button').onclick = () => { helpPaused = state === 'playing'; if (helpPaused) pause(); $('help').showModal(); };
