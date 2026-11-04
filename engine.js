@@ -1,4 +1,4 @@
-export const W = 3600, H = 2250, COOLDOWN = 2.4, TARGET = 8, HOOK_RANGE = 820;
+export const W = 3600, H = 2250, COOLDOWN = 2.4, TARGET = 30, HOOK_RANGE = 820;
 export const RIVER = { left: 1710, right: 1890 };
 export const SHOP_RANGE = 230;
 export const UPGRADES = [
@@ -21,7 +21,9 @@ export function upgradeValue(p, key) {
   return key === 'hookCooldown' ? Math.max(.8, p.hookCooldown * .97) : p[key] + additions[key];
 }
 export class Arena {
-  constructor(random = Math.random) {
+  constructor(random = Math.random, { targetKills = TARGET } = {}) {
+    if (targetKills !== null && (!Number.isSafeInteger(targetKills) || targetKills < 1 || targetKills > 9999)) throw new RangeError('Kill target must be an integer between 1 and 9999, or null for practice');
+    this.targetKills = targetKills;
     this.random = random; this.time = 0; this.hooks = []; this.events = []; this.winner = null;
     this.teams = [{ name: '翠葉隊', color: '#d6ed90', score: 0 }, { name: '赤牙隊', color: '#ed9981', score: 0 }];
     this.merchants = [
@@ -35,7 +37,7 @@ export class Arena {
       { name: '鐵顎', team: 0, x: RIVER.left - 130, y: H / 2 + 110 },
     ].map((p, id) => ({ ...p, id, color: this.teams[p.team].color, hp: 100, maxHp: 100, regen: .5, moveSpeed: 185,
       hookRadius: 8, hookCooldown: COOLDOWN, hookSpeed: 850, hookRange: HOOK_RANGE, gold: 0,
-      levels: Object.fromEntries(UPGRADES.map(u => [u.key, 0])), kills: 0, deaths: 0, cooldown: 0, dead: 0,
+      levels: Object.fromEntries(UPGRADES.map(u => [u.key, 0])), kills: 0, streak: 0, deaths: 0, cooldown: 0, dead: 0,
       shield: 1.5, angle: p.team ? Math.PI : 0, vx: 0, vy: 0, aiTimer: 1 + id * .7, phase: id * 1.8, pull: null, moveTarget: null }));
   }
   bounds(p) {
@@ -82,17 +84,23 @@ export class Arena {
   }
   hit(h, target) {
     const owner = this.players[h.owner];
-    if (!owner || !this.players.includes(target) || target.hp <= 0) return;
+    if (this.winner !== null || h.hasHit || !owner || !this.players.includes(target) || target.hp <= 0) return;
     h.hasHit = true; h.x = target.x; h.y = target.y;
     const damage = owner.team === target.team ? 0 : 55;
     target.hp = Math.max(0, target.hp - damage);
     this.events.push({ type: 'hit', x: target.x, y: target.y, color: target.color, damage });
     this.stopMove(target.id);
     if (target.hp === 0) {
-      target.deaths++; target.dead = 3; target.pull = null; owner.kills++; owner.gold++;
+      const endedStreak = target.streak;
+      target.deaths++; target.dead = 3; target.pull = null; target.streak = 0;
+      owner.kills++; owner.streak++;
+      const killReward = owner.streak >= 2 ? 2 : 1;
+      const shutdownReward = endedStreak >= 2 ? endedStreak : 0;
+      owner.gold += killReward + shutdownReward;
       this.teams[owner.team].score++;
-      this.events.push({ type: 'kill', owner: owner.id, victim: target.id, x: target.x, y: target.y, color: target.color });
-      if (this.teams[owner.team].score >= TARGET) { this.winner = owner.team; this.events.push({ type: 'win', team: owner.team }); }
+      this.events.push({ type: 'kill', owner: owner.id, victim: target.id, x: target.x, y: target.y, color: target.color,
+        streak: owner.streak, endedStreak, killReward, shutdownReward, reward: killReward + shutdownReward });
+      if (this.targetKills !== null && this.teams[owner.team].score >= this.targetKills) { this.winner = owner.team; this.events.push({ type: 'win', team: owner.team }); }
     } else { target.pull = h; h.victim = target.id; }
     h.returning = true;
   }
@@ -105,7 +113,7 @@ export class Arena {
   }
   respawn(p) {
     p.x = p.team === 0 ? 180 + this.random() * (RIVER.left - 360) : RIVER.right + 180 + this.random() * (W - RIVER.right - 360);
-    p.y = 100 + this.random() * (H - 200); p.hp = p.maxHp; p.shield = 2; p.cooldown = .6; p.pull = null; this.stopMove(p.id);
+    p.y = 100 + this.random() * (H - 200); p.hp = p.maxHp; p.streak = 0; p.shield = 2; p.cooldown = .6; p.pull = null; this.stopMove(p.id);
     this.events.push({ type: 'spawn', player: p.id, x: p.x, y: p.y, color: p.color });
   }
   tick(dt, input = {}) {
@@ -125,7 +133,7 @@ export class Arena {
         if (input.aim) p.angle = Math.atan2(input.aim.y - p.y, input.aim.x - p.x);
       } else {
         const merchant = [...this.merchants].sort((a, b) => Math.hypot(p.x - a.x, p.y - a.y) - Math.hypot(p.x - b.x, p.y - b.y))[0];
-        if (p.gold > 0) {
+        if (p.gold >= 1) {
           if (this.canShop(p.id, merchant.id)) {
             const items = UPGRADES.filter(u => upgradeValue(p, u.key) !== p[u.key]);
             this.buy(p.id, items[Math.floor(this.random() * items.length)].key, merchant.id);

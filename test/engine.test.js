@@ -99,12 +99,12 @@ test('lethal outbound hit cannot award another kill or coin during return', () =
   other.y = owner.y; advance(g, 1); assert.equal(other.hp, 45); assert.equal(owner.gold, 1);
 });
 test('team victory sums teammate kills and stops the match at eight', () => {
-  const g = battle(), target = g.players[1];
+  const g = battle(), target = g.players[1]; g.targetKills = 8;
   g.players[3].hp = 100;
-  for (let i = 0; i < TARGET; i++) { target.hp = 45; g.hit({ owner: i % 2 ? 3 : 0 }, target); }
+  for (let i = 0; i < 8; i++) { target.hp = 45; g.hit({ owner: i % 2 ? 3 : 0 }, target); }
   assert.equal(g.players[0].kills, 4); assert.equal(g.players[3].kills, 4);
-  assert.equal(g.players[0].gold, 4); assert.equal(g.players[3].gold, 4);
-  assert.equal(g.teams[0].score, TARGET); assert.equal(g.winner, 0);
+  assert.equal(g.players[0].gold, 7); assert.equal(g.players[3].gold, 7);
+  assert.equal(g.teams[0].score, 8); assert.equal(g.winner, 0);
   const time = g.time; advance(g, 1); assert.equal(g.time, time);
 });
 test('respawns always use team territory even after dying on enemy territory', () => {
@@ -203,4 +203,75 @@ test('new match resets currency, upgrades, team points and player stats', () => 
   const g = new Arena(), p = atShop(g); p.gold = 2; g.buy(0, 'maxHp'); g.teams[0].score = 3;
   const fresh = new Arena(); assert.equal(fresh.players[0].gold, 0); assert.equal(fresh.players[0].maxHp, 100);
   assert.equal(fresh.players[0].levels.maxHp, 0); assert.equal(fresh.teams[0].score, 0);
+});
+
+function scoreKill(g, killerId, victimId) {
+  const killer = g.players[killerId], victim = g.players[victimId];
+  killer.hp = killer.maxHp; victim.hp = 45;
+  g.hit({ owner: killerId }, victim);
+  return g.events.findLast(e => e.type === 'kill');
+}
+test('default target is 30 and custom targets are applied at exact team thresholds', () => {
+  assert.equal(new Arena().targetKills, 30); assert.equal(TARGET, 30);
+  for (const targetKills of [1, 5, 50]) {
+    const g = new Arena(() => .5, { targetKills });
+    for (let i = 1; i <= targetKills; i++) {
+      scoreKill(g, i % 2 ? 0 : 3, 1);
+      assert.equal(g.winner, i === targetKills ? 0 : null);
+    }
+    const gold = g.players[0].gold; scoreKill(g, 0, 1); assert.equal(g.players[0].gold, gold);
+  }
+});
+test('infinite practice continues after the default victory score', () => {
+  const g = new Arena(() => .5, { targetKills: null });
+  for (let i = 0; i < 100; i++) scoreKill(g, 0, 1);
+  assert.equal(g.teams[0].score, 100); assert.equal(g.winner, null);
+  const time = g.time; g.tick(.01); assert.ok(g.time > time);
+});
+test('invalid custom targets are rejected', () => {
+  for (const targetKills of [0, -1, 1.5, NaN, Infinity, 10000, '30']) {
+    assert.throws(() => new Arena(Math.random, { targetKills }), RangeError);
+  }
+});
+test('kill rewards are 1 then 2 for all later kills within the same life', () => {
+  const g = new Arena(() => .5, { targetKills: null });
+  const expectedTotals = [1, 3, 5, 7, 9];
+  for (let i = 0; i < expectedTotals.length; i++) {
+    const event = scoreKill(g, 0, 1);
+    assert.equal(g.players[0].gold, expectedTotals[i]); assert.equal(g.players[0].streak, i + 1);
+    assert.equal(event.killReward, i === 0 ? 1 : 2); assert.equal(event.shutdownReward, 0);
+  }
+});
+test('death immediately resets streak, retains wallet, and the next life starts at 1 coin', () => {
+  const g = new Arena(); scoreKill(g, 0, 1); scoreKill(g, 0, 2);
+  assert.equal(g.players[0].gold, 3); assert.equal(g.players[0].streak, 2);
+  scoreKill(g, 1, 0); assert.equal(g.players[0].streak, 0); assert.equal(g.players[0].gold, 3);
+  g.respawn(g.players[0]); const event = scoreKill(g, 0, 2);
+  assert.equal(event.killReward, 1); assert.equal(g.players[0].gold, 4); assert.equal(g.players[0].streak, 1);
+});
+test('shutdown pays the full victim streak as an extra bounty including odd streaks', () => {
+  for (const streak of [0, 1, 2, 3, 4, 7]) {
+    const g = new Arena(); g.players[1].streak = streak;
+    const event = scoreKill(g, 0, 1), bounty = streak >= 2 ? streak : 0;
+    assert.equal(event.shutdownReward, bounty); assert.equal(event.reward, 1 + bounty);
+    assert.equal(g.players[0].gold, 1 + bounty); assert.equal(g.players[1].streak, 0);
+    assert.equal(event.endedStreak, streak);
+  }
+});
+test('a killer on a streak receives both the 2-coin kill reward and shutdown bounty once', () => {
+  const g = new Arena(); g.players[0].streak = 2; g.players[1].streak = 3; g.players[1].hp = 45;
+  const h = { owner: 0 }; g.hit(h, g.players[1]); g.hit(h, g.players[1]);
+  assert.equal(g.players[0].streak, 3); assert.equal(g.players[0].gold, 5);
+  const events = g.events.filter(e => e.type === 'kill'); assert.equal(events.length, 1);
+  assert.equal(events[0].killReward, 2); assert.equal(events[0].shutdownReward, 3);
+});
+test('teammate rescues do not change streaks or award shutdown money', () => {
+  const g = new Arena(); g.players[0].streak = 2; g.players[3].streak = 5;
+  g.hit({ owner: 0 }, g.players[3]);
+  assert.equal(g.players[0].streak, 2); assert.equal(g.players[3].streak, 5); assert.equal(g.players[0].gold, 0);
+});
+test('upgrades still cost one coin even when funded by shutdown bounty', () => {
+  const g = new Arena(); g.players[1].streak = 3; scoreKill(g, 0, 1);
+  const p = atShop(g); assert.equal(p.gold, 4); assert.equal(g.buy(0, 'moveSpeed'), true);
+  assert.equal(p.gold, 3); assert.equal(p.streak, 1);
 });

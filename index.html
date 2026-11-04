@@ -11,27 +11,28 @@
   <header class="topbar">
     <a class="brand" href="./" aria-label="鉤魂競技場首頁"><span class="brand-icon">↪</span> HOOK<span>ARENA</span><small>鉤魂競技場</small></a>
     <nav><span class="active">競技場</span><button id="help-button">遊戲說明 <span>↗</span></button></nav>
-    <span class="build"><i></i> 單人練習 · v0.5</span>
+    <span class="build"><i></i> 單人練習 · v0.6</span>
   </header>
   <main>
-    <section class="heading"><div><div class="eyebrow">THE PIT IS WAITING</div><h1>一鉤，定勝負<span>。</span></h1><p>預判走位，甩出鎖鏈。把勝利拉到你面前。</p></div><div class="mode"><span class="mode-icon">⌖</span><div><strong>訓練競技場</strong><small>2 對 2 · 左右陣營 · 隊伍率先 8 擊殺</small></div></div></section>
+    <section class="heading"><div><div class="eyebrow">THE PIT IS WAITING</div><h1>一鉤，定勝負<span>。</span></h1><p>預判走位，甩出鎖鏈。把勝利拉到你面前。</p></div><div class="mode"><span class="mode-icon">⌖</span><div><strong>訓練競技場</strong><small id="mode-description">2 對 2 · 率先 30 擊殺</small></div></div></section>
     <section class="game-layout">
       <div class="arena-shell" id="arena-shell">
         <div class="arena-bar"><span><i></i> THE SUNKEN YARD <small>沉沒庭院</small></span><div><strong id="team-score" aria-label="隊伍比分">0 : 0</strong><span id="timer">00:00</span><span id="gold-text">0 金錢</span><button id="shop-button">B 商店</button><button id="fullscreen-button" aria-pressed="false">放大競技場</button><button id="pause-button" aria-label="暫停遊戲">Ⅱ</button><button id="sound-button" aria-label="開啟音效">音效 關</button></div></div>
         <div class="canvas-wrap" id="canvas-wrap">
           <canvas id="arena" width="1200" height="750" aria-label="鉤魂競技場：使用滑鼠右鍵點地移動，滑鼠瞄準，按 Q 出鉤，S 停止移動" tabindex="0"></canvas>
           <div class="camera-caption"><strong>2.5D 視野 · 全圖 1/9</strong><span id="camera-mode">2.5D · 固定跟隨角色 · 翠葉隊</span></div>
+          <div id="streak-text" class="streak-hud">本條命首殺 $1</div>
           <div id="feed" class="feed" aria-live="polite"></div>
-          <div id="overlay" class="overlay"><div class="overlay-card"><div class="seal">↪</div><div class="eyebrow">WELCOME TO THE PIT</div><h2 id="overlay-title">獵物，還是獵人？</h2><p id="overlay-description">掌握鎖鏈的距離，讓每一鉤都有意義。<br>你與鐵顎守住左側，對抗右側赤牙與幽潮。<br>擊殺 +1 金錢 · 每次升級只花 1 金錢。</p><button id="play-button" class="primary">進入競技場 <span>→</span></button><small id="overlay-hint">右鍵移動 · Q 出鉤 · B 商店 · S 停止</small></div></div>
+          <div id="overlay" class="overlay"><div class="overlay-card"><div class="seal">↪</div><div class="eyebrow">WELCOME TO THE PIT</div><h2 id="overlay-title">獵物，還是獵人？</h2><p id="overlay-description">掌握鎖鏈的距離，讓每一鉤都有意義。<br>你與鐵顎守住左側，對抗右側赤牙與幽潮。<br>首殺 $1 · 第二殺起每殺 $2 · 升級每次 $1。</p><div id="match-settings" class="match-settings"><label for="kill-target">隊伍勝利擊殺數 <input id="kill-target" type="number" min="1" max="9999" step="1" value="30" required></label><label class="endless-option"><input id="endless-mode" type="checkbox"> 無限練習，不設擊殺上限</label></div><button id="play-button" class="primary">進入競技場 <span>→</span></button><button id="reset-button" class="reset-match" hidden>重新設定對局</button><small id="overlay-hint">右鍵移動 · Q 出鉤 · B 商店 · S 停止</small></div></div>
           <div class="hook-hud"><span class="key">Q</span><div><strong id="hook-status">鎖鏈就緒</strong><span id="hook-description">滑鼠瞄準 / 按 Q 出鉤</span><div class="cooldown-track"><div id="cooldown"></div></div></div><span class="hook-symbol">↗</span></div>
           <div class="minimap-panel"><span>戰場全圖 <small>左右陣營 · 商人 ◆</small></span><canvas id="minimap" width="240" height="150" aria-label="戰場小地圖：顯示兩隊、兩位中立商人與固定跟隨視野"></canvas></div>
           <div class="health-hud"><span>你的生命</span><strong id="hp-text">100 <small>/ 100</small></strong><div><i id="hp-bar"></i></div></div>
         </div>
-        <div class="arena-footer"><span><i></i> 固定跟隨視角 · 擊殺 +1 金錢</span><span>瞄準 <b>⌖</b> <span class="divider">/</span> 移動 <b>右鍵</b> <span class="divider">/</span> 出鉤 <b>Q</b> <span class="divider">/</span> 暫停 <b>ESC</b></span></div>
+        <div class="arena-footer"><span><i></i> 固定跟隨視角 · 第二殺起 $2</span><span>瞄準 <b>⌖</b> <span class="divider">/</span> 移動 <b>右鍵</b> <span class="divider">/</span> 出鉤 <b>Q</b> <span class="divider">/</span> 暫停 <b>ESC</b></span></div>
       </div>
       <aside>
-        <section class="panel scoreboard"><div class="panel-title"><h2>隊伍戰況</h2><span>LIVE</span></div><div class="table-head"><span>挑戰者</span><span>擊殺 / 陣亡</span></div><div id="scores"></div><div class="target"><span>✧</span> 隊伍率先達成 <strong>8 次擊殺</strong> 獲勝</div></section>
-        <section class="panel controls"><div class="panel-title"><h2>掌握你的鎖鏈</h2><span>01—03</span></div><div class="control"><span class="control-num">01</span><div><strong>保持移動</strong><p>滑鼠右鍵點地移動，<br>別讓對手看穿你的走位。</p></div><span class="control-key">RMB</span></div><div class="control"><span class="control-num">02</span><div><strong>預判，再出鉤</strong><p>滑鼠瞄準，按 Q 立即出鉤。<br>出去、回收都能鉤中。</p></div><span class="control-key">↖</span></div><div class="control"><span class="control-num">03</span><div><strong>擊殺，升級</strong><p>擊殺獲得 1 金錢，按 B 開商店。<br>靠近任一商人，每次升級 1 金錢。</p></div><span class="control-key">↪</span></div></section>
+        <section class="panel scoreboard"><div class="panel-title"><h2>隊伍戰況</h2><span>LIVE</span></div><div class="table-head"><span>挑戰者</span><span>擊殺 / 陣亡</span></div><div id="scores"></div><div class="target"><span>✧</span> <strong id="target-label">隊伍率先 30 擊殺獲勝</strong></div></section>
+        <section class="panel controls"><div class="panel-title"><h2>掌握你的鎖鏈</h2><span>01—03</span></div><div class="control"><span class="control-num">01</span><div><strong>保持移動</strong><p>滑鼠右鍵點地移動，<br>別讓對手看穿你的走位。</p></div><span class="control-key">RMB</span></div><div class="control"><span class="control-num">02</span><div><strong>預判，再出鉤</strong><p>滑鼠瞄準，按 Q 立即出鉤。<br>出去、回收都能鉤中。</p></div><span class="control-key">↖</span></div><div class="control"><span class="control-num">03</span><div><strong>擊殺，升級</strong><p>首殺 $1，第二殺起 $2。<br>靠近任一商人，每次升級 1 金錢。</p></div><span class="control-key">↪</span></div></section>
         <div class="tip"><span>✦</span><div><strong>獵人的筆記</strong><p>左右邊線中央各有一位商人。<br>中立、無敵，兩隊都能交易。</p></div></div>
       </aside>
     </section>
@@ -41,13 +42,13 @@
     <button id="close-shop" class="close" aria-label="關閉商店">×</button>
     <div class="eyebrow">NEUTRAL TRADING POST</div><div class="shop-heading"><h2 id="shop-title">中立商人的補給站</h2><strong id="shop-gold">0 金錢</strong></div>
     <p id="shop-status" role="status"></p><button id="shop-travel" class="travel">前往本側商人 →</button>
-    <div id="shop-items"></div><p class="shop-note">擊殺敵人 +1 金錢 · 全部升級每次 1 金錢 · 死亡保留金錢與升級<br>購物期間戰鬥仍持續；商人無敵、無隊伍，不會被鉤中。</p>
+    <div id="shop-items"></div><p class="shop-note">本條命首殺 $1，第二殺起每殺 $2 · 終結獎金＝對手連殺數<br>全部升級每次 1 金錢 · 死亡保留金錢與升級<br>購物期間戰鬥仍持續；商人無敵、無隊伍，不會被鉤中。</p>
   </dialog>
   <dialog id="help"><button id="close-help" class="close" aria-label="關閉說明">×</button><div class="eyebrow">FIELD MANUAL</div><h2>讓每一鉤都有意義。</h2>
     <p>滑鼠右鍵點地移動，Q 朝游標出鉤，S 停止，Esc / P 暫停。鏡頭固定跟隨你的角色，只顯示全圖約 1/9；小地圖僅提供全圖資訊。</p>
     <p>你與鐵顎屬於左側翠葉隊，赤牙與幽潮屬於右側赤牙隊。中央直向河道不可步行，鉤子可以穿越；被拉過河後可在當地半場活動。重生只會出現在自己的隊伍半場。</p>
-    <p>空鉤出去和回收途中都能命中；每次出鉤最多命中一人。命中敵人造成 55 傷害並拉回，鉤中隊友只救援、不造成傷害。隊伍率先取得 8 擊殺獲勝。</p>
-    <p>每次擊殺敵人獲得 1 金錢。左右外側邊線中央各有一位中立商人；兩隊都能使用，商人無敵且不會被鉤中。按 B 檢視商店或點擊商人，靠近商人才能購買。每次升級花費 1 金錢，死亡保留升級與金錢，重開對局才歸零。</p>
+    <p>空鉤出去和回收途中都能命中；每次出鉤最多命中一人。命中敵人造成 55 傷害並拉回，鉤中隊友只救援、不造成傷害。開局可自訂隊伍勝利擊殺數（預設 30），或選擇無限練習。暫停後可重新設定並開始新局。</p>
+    <p>每條命首殺獲得 $1，第二殺起每殺 $2，死亡後連殺歸零。終結至少兩連殺的敵人，另外獲得等同對手連殺數的獎金（例如終結三連殺另加 $3）。左右外側邊線中央各有一位中立商人；兩隊都能使用，商人無敵且不會被鉤中。按 B 檢視商店或點擊商人，靠近商人才能購買。每次升級花費 1 金錢，死亡保留升級與金錢，重開對局才歸零。</p>
     <p>基礎每秒回復 0.5 生命。七種升級均小幅累加：最大生命 +5、每秒回血 +0.1、移速 +3、鉤頭半徑 +0.75、冷卻縮短 3%（最低 0.8 秒）、鉤速 +25、鉤長 +25。</p>
   </dialog>
   <script type="module" src="game.js"></script>
