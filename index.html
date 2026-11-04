@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#101714">
+  <title>HOOK ARENA · 鉤魂競技場</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="./" aria-label="鉤魂競技場首頁"><span class="brand-icon">↪</span> HOOK<span>ARENA</span><small>鉤魂競技場</small></a>
+    <nav><span class="active">競技場</span><button id="help-button">遊戲說明 <span>↗</span></button></nav>
+    <span class="build"><i></i> 單人練習 · v0.1</span>
+  </header>
+  <main>
+    <section class="heading"><div><div class="eyebrow">THE PIT IS WAITING</div><h1>一鉤，定勝負<span>。</span></h1><p>預判走位，甩出鎖鏈。把勝利拉到你面前。</p></div><div class="mode"><span class="mode-icon">⌖</span><div><strong>訓練競技場</strong><small>你 ＋ 3 位電腦對手 · 率先 8 擊殺</small></div></div></section>
+    <section class="game-layout">
+      <div class="arena-shell">
+        <div class="arena-bar"><span><i></i> THE SUNKEN YARD <small>沉沒庭院</small></span><div><span id="timer">00:00</span><button id="pause-button" aria-label="暫停遊戲">Ⅱ</button><button id="sound-button" aria-label="開啟音效">音效 關</button></div></div>
+        <div class="canvas-wrap" id="canvas-wrap">
+          <canvas id="arena" width="1200" height="760" aria-label="鉤魂競技場：使用滑鼠右鍵點地移動，滑鼠瞄準，按 Q 出鉤，S 停止移動" tabindex="0"></canvas>
+          <div class="arena-label top">NORTH BANK <span>北岸</span></div><div class="arena-label bottom">SOUTH BANK <span>南岸</span></div>
+          <div id="feed" class="feed" aria-live="polite"></div>
+          <div id="overlay" class="overlay"><div class="overlay-card"><div class="seal">↪</div><div class="eyebrow">WELCOME TO THE PIT</div><h2 id="overlay-title">獵物，還是獵人？</h2><p id="overlay-description">掌握鎖鏈的距離，讓每一鉤都有意義。<br>在河道兩側交戰，率先取得 8 次擊殺。</p><button id="play-button" class="primary">進入競技場 <span>→</span></button><small id="overlay-hint">右鍵移動 · 滑鼠瞄準 · Q 出鉤 · S 停止</small></div></div>
+          <div class="hook-hud"><span class="key">Q</span><div><strong id="hook-status">鎖鏈就緒</strong><span id="hook-description">滑鼠瞄準 / 按 Q 出鉤</span><div class="cooldown-track"><div id="cooldown"></div></div></div><span class="hook-symbol">↗</span></div>
+          <div class="health-hud"><span>你的生命</span><strong id="hp-text">100 <small>/ 100</small></strong><div><i id="hp-bar"></i></div></div>
+        </div>
+        <div class="arena-footer"><span><i></i> 本機即時模擬</span><span>瞄準 <b>⌖</b> <span class="divider">/</span> 移動 <b>右鍵</b> <span class="divider">/</span> 出鉤 <b>Q</b> <span class="divider">/</span> 暫停 <b>ESC</b></span></div>
+      </div>
+      <aside>
+        <section class="panel scoreboard"><div class="panel-title"><h2>戰況排行</h2><span>LIVE</span></div><div class="table-head"><span>挑戰者</span><span>擊殺 / 陣亡</span></div><div id="scores"></div><div class="target"><span>✧</span> 率先達成 <strong>8 次擊殺</strong> 獲勝</div></section>
+        <section class="panel controls"><div class="panel-title"><h2>掌握你的鎖鏈</h2><span>01—03</span></div><div class="control"><span class="control-num">01</span><div><strong>保持移動</strong><p>滑鼠右鍵點地移動，<br>別讓對手看穿你的走位。</p></div><span class="control-key">RMB</span></div><div class="control"><span class="control-num">02</span><div><strong>預判，再出鉤</strong><p>滑鼠瞄準，按 Q 立即出鉤。<br>鎖鏈也能越過河道。</p></div><span class="control-key">↖</span></div><div class="control"><span class="control-num">03</span><div><strong>拉近，終結</strong><p>命中造成 55 傷害並拉回，<br>兩次命中就能拿下擊殺。</p></div><span class="control-key">↪</span></div></section>
+        <div class="tip"><span>✦</span><div><strong>獵人的筆記</strong><p>朝對手「即將到達」的位置出鉤，<br>而不是他現在站的位置。</p></div></div>
+      </aside>
+    </section>
+    <footer class="page-footer"><span>HOOK ARENA <span> / </span> 原創網頁競技原型</span><span>靈感源自經典鉤子對戰 · 單機 AI 練習版</span></footer>
+  </main>
+  <dialog id="help"><button id="close-help" class="close" aria-label="關閉說明">×</button><div class="eyebrow">FIELD MANUAL</div><h2>讓每一鉤都有意義。</h2><p>使用滑鼠右鍵點擊地面，角色會自動走到指定位置；再次右鍵可改變目的地，按 S 停止移動。滑鼠指向目標，按 Q 立即朝游標出鉤。河道不可步行，點擊河道或對岸會移動到本側河岸，但鎖鏈可以穿越。</p><p>命中造成 55 傷害並把敵人拉回。出鉤後冷卻 2.4 秒。陣亡後 3 秒重生，重生時有短暫保護。率先拿下 8 次擊殺獲勝。</p><p>按 Esc 或 P 暫停。這是單機自由混戰練習版，其他三名角色由 AI 操控。</p></dialog>
+  <script type="module" src="game.js"></script>
+</body>
+</html>
