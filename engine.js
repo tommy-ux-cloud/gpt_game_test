@@ -29,9 +29,11 @@ export function upgradeValue(p, key) {
   return key === 'hookCooldown' ? Math.max(.8, p.hookCooldown * .97) : p[key] + additions[key];
 }
 export class Arena {
-  constructor(random = Math.random, { targetKills = TARGET } = {}) {
+  constructor(random = Math.random, { targetKills = TARGET, mode = 'team' } = {}) {
     if (targetKills !== null && (!Number.isSafeInteger(targetKills) || targetKills < 1 || targetKills > 9999)) throw new RangeError('Kill target must be an integer between 1 and 9999, or null for practice');
-    this.targetKills = targetKills;
+    if (!['team', 'dummy'].includes(mode)) throw new RangeError('Unknown game mode');
+    this.mode = mode; this.targetKills = mode === 'dummy' ? null : targetKills;
+    this.practice = { shots: 0, hits: 0, damage: 0 };
     this.random = random; this.time = 0; this.hooks = []; this.events = []; this.winner = null;
     this.teams = [{ name: '翠葉隊', color: '#d6ed90', score: 0 }, { name: '赤牙隊', color: '#ed9981', score: 0 }];
     this.merchants = [
@@ -47,13 +49,20 @@ export class Arena {
       hookRadius: 8, hookCooldown: COOLDOWN, hookSpeed: 850, hookRange: HOOK_RANGE, hookDamage: 55, gold: 0,
       levels: Object.fromEntries(UPGRADES.map(u => [u.key, 0])), kills: 0, streak: 0, deaths: 0, cooldown: 0, dead: 0,
       shield: 1.5, angle: p.team ? Math.PI : 0, vx: 0, vy: 0, aiTimer: 1 + id * .7, phase: id * 1.8, pull: null, moveTarget: null }));
+    if (mode === 'dummy') {
+      this.players = this.players.slice(0, 2);
+      this.players[0].y = H / 2;
+      const dummy = this.players[1];
+      Object.assign(dummy, { dummy: true, name: '練習靶人', y: H / 2, maxHp: 1000000, hp: 1000000, regen: 100000, shield: 0, resetAfter: 0 });
+      dummy.home = { x: dummy.x, y: dummy.y };
+    }
   }
   bounds(p) {
     return p.x < RIVER.left ? { min: 45, max: RIVER.left - 25 } : { min: RIVER.right + 25, max: W - 45 };
   }
   moveTo(id, x, y) {
     const p = this.players[id];
-    if (this.winner !== null || !p || p.hp <= 0 || p.pull || !Number.isFinite(x) || !Number.isFinite(y)) return false;
+    if (this.winner !== null || !p || p.dummy || p.hp <= 0 || p.pull || !Number.isFinite(x) || !Number.isFinite(y)) return false;
     const bounds = this.bounds(p);
     p.moveTarget = { x: clamp(x, bounds.min, bounds.max), y: clamp(y, 55, H - 55) };
     return true;
@@ -61,7 +70,7 @@ export class Arena {
   stopMove(id) { const p = this.players[id]; p.moveTarget = null; p.vx = p.vy = 0; }
   canShop(id, merchantId) {
     const p = this.players[id];
-    return !!p && this.winner === null && p.hp > 0 && !p.pull && this.merchants.some(m =>
+    return !!p && !p.dummy && this.winner === null && p.hp > 0 && !p.pull && this.merchants.some(m =>
       (merchantId === undefined || m.id === merchantId) && Math.hypot(p.x - m.x, p.y - m.y) <= SHOP_RANGE);
   }
   buy(id, key, merchantId) {
@@ -75,13 +84,14 @@ export class Arena {
   }
   fire(id, x, y) {
     const p = this.players[id];
-    if (this.winner !== null || p.hp <= 0 || p.cooldown > 0 || p.pull || this.hooks.some(h => h.owner === id)) return false;
+    if (this.winner !== null || p.dummy || p.hp <= 0 || p.cooldown > 0 || p.pull || this.hooks.some(h => h.owner === id)) return false;
     if (!Number.isFinite(x) || !Number.isFinite(y)) return false;
     const angle = Math.atan2(y - p.y, x - p.x);
-    p.angle = angle; p.cooldown = p.hookCooldown;
+    p.angle = angle;
     this.hooks.push({ owner: id, x: p.x, y: p.y, dx: Math.cos(angle), dy: Math.sin(angle), distance: 0,
       returning: false, victim: null, hasHit: false, range: p.hookRange, speed: p.hookSpeed,
       returnSpeed: p.hookSpeed * 1080 / 850, radius: p.hookRadius, damage: p.hookDamage });
+    if (this.mode === 'dummy' && id === 0) this.practice.shots++;
     this.events.push({ type: 'fire', x: p.x, y: p.y, color: p.color }); return true;
   }
   move(p, dx, dy, dt) {
@@ -95,9 +105,14 @@ export class Arena {
     if (this.winner !== null || h.hasHit || !owner || !this.players.includes(target) || target.hp <= 0) return;
     h.hasHit = true; h.x = target.x; h.y = target.y;
     const damage = owner.team === target.team ? 0 : (h.damage ?? owner.hookDamage);
+    const actualDamage = Math.min(target.hp, damage);
     target.hp = Math.max(0, target.hp - damage);
     this.events.push({ type: 'hit', x: target.x, y: target.y, color: target.color, damage });
     this.stopMove(target.id);
+    if (target.dummy) {
+      this.practice.hits++; this.practice.damage += actualDamage;
+      if (target.hp === 0) { target.dead = .5; target.pull = null; h.returning = true; return; }
+    }
     if (target.hp === 0) {
       const endedStreak = target.streak;
       target.deaths++; target.dead = 3; target.pull = null; target.streak = 0;
@@ -123,9 +138,18 @@ export class Arena {
     if (contacts.length) this.hit(h, contacts[0].player);
   }
   respawn(p) {
+    if (p.dummy) { this.restoreDummy(p); return; }
     p.x = p.team === 0 ? 180 + this.random() * (RIVER.left - 360) : RIVER.right + 180 + this.random() * (W - RIVER.right - 360);
     p.y = 100 + this.random() * (H - 200); p.hp = p.maxHp; p.streak = 0; p.shield = 2; p.cooldown = .6; p.pull = null; this.stopMove(p.id);
     this.events.push({ type: 'spawn', player: p.id, x: p.x, y: p.y, color: p.color });
+  }
+  restoreDummy(p) {
+    Object.assign(p, p.home, { hp: p.maxHp, dead: 0, shield: 0, pull: null, resetAfter: 0 });
+    this.stopMove(p.id);
+  }
+  resetTraining() {
+    if (this.mode !== 'dummy') return false;
+    this.hooks = []; this.restoreDummy(this.players[1]); this.players[0].cooldown = 0; return true;
   }
   tick(dt, input = {}) {
     if (this.winner !== null) return;
@@ -133,9 +157,13 @@ export class Arena {
     const starts = this.players.map(p => ({ x: p.x, y: p.y }));
     for (const p of this.players) {
       p.cooldown = Math.max(0, p.cooldown - dt); p.shield = Math.max(0, p.shield - dt);
-      if (p.hp <= 0) { p.dead -= dt; if (p.dead <= 0) this.respawn(p); continue; }
+      if (p.hp <= 0) { p.dead -= dt; if (p.dead <= 0) { this.respawn(p); starts[p.id] = { x: p.x, y: p.y }; } continue; }
       p.hp = Math.min(p.maxHp, p.hp + p.regen * dt);
       if (p.pull) { p.vx = p.vy = 0; continue; }
+      if (p.dummy) {
+        if (p.resetAfter > 0) { p.resetAfter -= dt; if (p.resetAfter <= 0) { this.restoreDummy(p); starts[p.id] = { x: p.x, y: p.y }; } }
+        this.stopMove(p.id); continue;
+      }
       if (p.id === 0) {
         if (p.moveTarget) {
           const dx = p.moveTarget.x - p.x, dy = p.moveTarget.y - p.y;
@@ -172,14 +200,14 @@ export class Arena {
     }
     this.hooks = this.hooks.filter(h => {
       const owner = this.players[h.owner];
-      if (owner.hp <= 0 || owner.pull) { this.release(h); return false; }
+      if (owner.hp <= 0 || owner.pull) { this.release(h); owner.cooldown = owner.hookCooldown; return false; }
       if (h.returning) {
         const dx = owner.x - h.x, dy = owner.y - h.y, d = Math.hypot(dx, dy), step = h.returnSpeed * dt;
         const ox = h.x, oy = h.y, travel = Math.min(d, step);
         h.x += dx / (d || 1) * travel; h.y += dy / (d || 1) * travel;
         this.checkHit(h, ox, oy, starts);
         if (h.victim !== null) { const p = this.players[h.victim]; p.x = h.x; p.y = h.y; }
-        if (d <= step) { this.release(h, owner); return false; }
+        if (d <= step) { this.release(h, owner); owner.cooldown = owner.hookCooldown; return false; }
       } else {
         const ox = h.x, oy = h.y, step = Math.min(h.speed * dt, h.range - h.distance);
         h.x += h.dx * step; h.y += h.dy * step; h.distance += step; this.checkHit(h, ox, oy, starts);
@@ -193,5 +221,6 @@ export class Arena {
     const p = this.players[h.victim]; p.pull = null;
     if (owner) { p.x = clamp(owner.x + (h.dx >= 0 ? 38 : -38), 45, W - 45); p.y = owner.y; }
     if (p.x > RIVER.left - 25 && p.x < RIVER.right + 25) p.x = p.x < W / 2 ? RIVER.left - 25 : RIVER.right + 25;
+    if (p.dummy && p.hp > 0) p.resetAfter = .75;
   }
 }

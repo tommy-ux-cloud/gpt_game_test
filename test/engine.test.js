@@ -183,7 +183,7 @@ test('purchased hook range, speed and cooldown apply to the next cast', () => {
   const g = battle(), p = atShop(g); p.gold = 3;
   for (const key of ['hookRange', 'hookSpeed', 'hookCooldown']) g.buy(0, key);
   p.x = 500; p.y = H / 2; g.players[1].y += 200;
-  g.fire(0, 3000, p.y); assert.equal(p.cooldown, 2.4 * .97);
+  g.fire(0, 3000, p.y); assert.equal(p.cooldown, 0);
   const h = g.hooks[0]; assert.equal(h.range, 845); assert.equal(h.speed, 875); assert.ok(h.returnSpeed > 1080);
   const x = h.x; g.tick(.05); assert.equal(h.x - x, 875 * .05);
   for (let i = 0; i < 120 && !h.returning; i++) g.tick(1 / 60);
@@ -299,7 +299,7 @@ test('damage purchases affect future casts while an existing projectile keeps it
   const g = battle(), [owner, target] = g.players; atShop(g); owner.gold = 1;
   target.x = 600; target.y = owner.y; g.fire(0, 900, owner.y);
   const h = g.hooks[0]; g.buy(0, 'hookDamage'); assert.equal(h.damage, 55); assert.equal(owner.hookDamage, 57);
-  advance(g, 3); assert.equal(target.hp, 45);
+  advance(g, 4); assert.equal(target.hp, 45);
   target.hp = 100; g.fire(0, target.x, target.y); advance(g, .5); assert.equal(target.hp, 43);
   owner.hp = 0; owner.dead = .01; advance(g, .1); assert.equal(owner.hookDamage, 57); assert.equal(owner.levels.hookDamage, 1);
   assert.equal(new Arena().players[0].hookDamage, 55);
@@ -349,4 +349,71 @@ test('relative sweep rejects a moving target whose final position alone suggests
   const h = { owner: 0, x: 600, y: owner.y, radius: 8, damage: 55, hasHit: false, victim: null };
   assert.equal(segmentHit(500, owner.y, 600, owner.y, target.x, target.y, 28), true);
   g.checkHit(h, 500, owner.y, starts); assert.equal(target.hp, 100); assert.equal(h.hasHit, false);
+});
+
+test('stationary practice spawns just the player and a high-health regenerating dummy', () => {
+  const g = new Arena(() => .5, { mode: 'dummy', targetKills: 1 });
+  assert.equal(g.players.length, 2); assert.equal(g.targetKills, null);
+  const target = g.players[1]; assert.equal(target.dummy, true); assert.equal(target.team, 1);
+  assert.equal(target.hp, 1000000); assert.equal(target.regen, 100000); assert.equal(target.shield, 0);
+  const start = { x: target.x, y: target.y }; advance(g, 30);
+  assert.equal(target.x, start.x); assert.equal(target.y, start.y); assert.equal(g.hooks.length, 0);
+  assert.equal(g.players[0].hp, 100); assert.equal(g.winner, null);
+});
+test('practice dummy cannot walk, cast or buy and never runs AI', () => {
+  const g = new Arena(() => .5, { mode: 'dummy' }), target = g.players[1]; target.gold = 10;
+  assert.equal(g.moveTo(1, 3000, 1000), false); assert.equal(g.fire(1, 500, 1000), false);
+  target.x = g.merchants[1].x; target.y = g.merchants[1].y;
+  assert.equal(g.buy(1, 'hookDamage'), false); advance(g, 5); assert.equal(target.gold, 10); assert.equal(g.hooks.length, 0);
+});
+test('practice hit pulls normally, regenerates and returns to its original position', () => {
+  const g = new Arena(() => .5, { mode: 'dummy' }), [p, target] = g.players;
+  g.fire(0, target.x, target.y);
+  for (let i = 0; i < 300 && g.hooks.length; i++) g.tick(1 / 60);
+  assert.equal(g.practice.shots, 1); assert.equal(g.practice.hits, 1); assert.equal(g.practice.damage, 55);
+  assert.ok(target.x < RIVER.left); assert.equal(p.gold, 0); assert.equal(p.kills, 0);
+  advance(g, 1); assert.equal(target.x, target.home.x); assert.equal(target.y, target.home.y); assert.equal(target.hp, target.maxHp);
+  assert.equal(target.pull, null); assert.equal(g.winner, null);
+});
+test('extreme damage to a practice dummy never grants kill rewards and restores it', () => {
+  const g = new Arena(() => .5, { mode: 'dummy' }), [p, target] = g.players;
+  p.hookDamage = 2000000; g.fire(0, target.x, target.y); advance(g, 2);
+  assert.equal(target.hp, target.maxHp); assert.equal(target.x, target.home.x); assert.equal(target.deaths, 0);
+  assert.equal(p.gold, 0); assert.equal(p.kills, 0); assert.equal(p.streak, 0); assert.equal(g.teams[0].score, 0);
+  assert.equal(g.practice.hits, 1); assert.equal(g.practice.damage, 1000000); assert.equal(g.winner, null);
+});
+test('R reset cancels in-flight hooks, restores the dummy and clears cooldown without wiping practice counters', () => {
+  const g = new Arena(() => .5, { mode: 'dummy' }), [p, target] = g.players;
+  g.fire(0, target.x, target.y); advance(g, .1); assert.equal(g.hooks.length, 1);
+  assert.equal(g.resetTraining(), true); assert.equal(g.hooks.length, 0); assert.equal(p.cooldown, 0);
+  assert.equal(target.hp, target.maxHp); assert.equal(target.pull, null); assert.equal(g.practice.shots, 1);
+  assert.equal(g.fire(0, target.x, target.y), true); assert.equal(g.practice.shots, 2);
+  assert.equal(new Arena().resetTraining(), false);
+});
+test('cooldown starts at full duration only after the hook returns, for misses and hits', () => {
+  for (const hit of [false, true]) {
+    const g = battle(), [p, target] = g.players;
+    if (!hit) target.y += 150;
+    g.fire(0, 3000, p.y); assert.equal(p.cooldown, 0);
+    let frames = 0;
+    while (g.hooks.length && frames++ < 500) {
+      assert.equal(p.cooldown, 0); assert.equal(g.fire(0, 3000, p.y), false); g.tick(.01);
+    }
+    assert.ok(frames < 500); assert.equal(p.cooldown, p.hookCooldown);
+    advance(g, .5); assert.ok(Math.abs(p.cooldown - 1.9) < .001); assert.equal(g.fire(0, 3000, p.y), false);
+    advance(g, 2); assert.equal(p.cooldown, 0); assert.equal(g.fire(0, 3000, p.y), true);
+  }
+});
+test('cooldown upgrade is applied when the current hook finishes returning', () => {
+  const g = battle(), p = atShop(g); p.gold = 1;
+  g.fire(0, 900, p.y); g.buy(0, 'hookCooldown');
+  for (let i = 0; i < 500 && g.hooks.length; i++) { assert.equal(p.cooldown, 0); g.tick(.01); }
+  assert.equal(p.cooldown, 2.4 * .97);
+});
+test('normal matches and infinite team battles still have four active characters', () => {
+  for (const targetKills of [30, null]) {
+    const g = new Arena(() => .5, { targetKills });
+    assert.equal(g.mode, 'team'); assert.equal(g.players.length, 4); assert.equal(g.players.some(p => p.dummy), false);
+  }
+  assert.throws(() => new Arena(Math.random, { mode: 'invalid' }), RangeError);
 });

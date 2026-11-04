@@ -230,17 +230,21 @@ let scoreCache = '';
 function hud() {
   const p = game.players[0]; $('timer').textContent = `${String(Math.floor(game.time / 60)).padStart(2, '0')}:${String(Math.floor(game.time % 60)).padStart(2, '0')}`;
   $('hp-text').innerHTML = `${Math.ceil(p.hp)} <small>/ ${p.maxHp}</small>`; $('hp-bar').style.width = `${p.hp / p.maxHp * 100}%`;
-  $('cooldown').style.width = `${(1 - p.cooldown / p.hookCooldown) * 100}%`;
-  $('hook-status').textContent = p.hp <= 0 ? `重生倒數 ${Math.ceil(p.dead)} 秒` : p.pull ? '被鉤中了！' : p.cooldown > 0 ? `鎖鏈冷卻 · ${p.cooldown.toFixed(1)}s` : game.hooks.some(h => h.owner === 0) ? '鎖鏈飛行中' : '鎖鏈就緒';
+  const activeHook = game.hooks.find(h => h.owner === 0);
+  $('cooldown').style.width = `${activeHook ? 0 : Math.max(0, 1 - p.cooldown / p.hookCooldown) * 100}%`;
+  $('hook-status').textContent = p.hp <= 0 ? `重生倒數 ${Math.ceil(p.dead)} 秒` : p.pull ? '被鉤中了！' : activeHook ? (activeHook.returning ? '鉤子回收中' : '鉤子飛行中') : p.cooldown > 0 ? `鎖鏈冷卻 · ${p.cooldown.toFixed(1)}s` : '鎖鏈就緒';
+  $('hook-description').textContent = activeHook ? '回到身上後開始冷卻' : '滑鼠瞄準 / 按 Q 出鉤';
+  const training = game.mode === 'dummy';
+  $('training-reset').hidden = !training;
   $('gold-text').textContent = `${money(p.gold)} 金錢`;
-  $('target-label').textContent = game.targetKills === null ? '無限練習 · 不設擊殺上限' : `隊伍率先 ${game.targetKills} 擊殺獲勝`;
-  $('mode-description').textContent = game.targetKills === null ? '2 對 2 · 無限練習' : `2 對 2 · 率先 ${game.targetKills} 擊殺`;
-  $('streak-text').textContent = p.streak >= 2 ? `${p.streak} 連殺 · 下次擊殺 $2` : p.streak === 1 ? '1 連殺 · 下次擊殺 $2' : '本條命首殺 $1';
+  $('target-label').textContent = training ? '固定靶人 · 100 萬生命 · 每秒回血 10 萬' : game.targetKills === null ? '無限練習 · 不設擊殺上限' : `隊伍率先 ${game.targetKills} 擊殺獲勝`;
+  $('mode-description').textContent = training ? '靶場練習 · 1 位固定靶人' : game.targetKills === null ? '2 對 2 · 無限練習' : `2 對 2 · 率先 ${game.targetKills} 擊殺`;
+  $('streak-text').textContent = training ? `出鉤 ${game.practice.shots} · 命中 ${game.practice.hits} · 累計傷害 ${game.practice.damage}` : p.streak >= 2 ? `${p.streak} 連殺 · 下次擊殺 $2` : p.streak === 1 ? '1 連殺 · 下次擊殺 $2' : '本條命首殺 $1';
   $('team-score').innerHTML = `<span>${game.teams[0].score}</span> : <span>${game.teams[1].score}</span>`;
   shopView();
   const score = game.players.map(p => `${p.kills},${p.deaths},${p.streak}`).join('|');
   if (score !== scoreCache) {
-    scoreCache = score; $('scores').innerHTML = [...game.players].sort((a, b) => a.team - b.team || a.id - b.id).map(p => `<div class="score-row" style="--player:${p.color}"><span class="avatar">${['↪', '♜', '◈', '♟'][p.id]}</span><span class="name">${p.name}${p.streak >= 2 ? `<b class="streak-badge">${p.streak} 連殺</b>` : ''}<em>${p.team === 0 ? '翠葉隊' : '赤牙隊'}</em>${p.id === 0 ? '<small>YOU</small>' : ''}</span><span class="stats">${p.kills} <span>/ ${p.deaths}</span></span></div>`).join('');
+    scoreCache = score; $('scores').innerHTML = [...game.players].sort((a, b) => a.team - b.team || a.id - b.id).map(p => `<div class="score-row" style="--player:${p.color}"><span class="avatar">${['↪', '♜', '◈', '♟'][p.id]}</span><span class="name">${p.name}${p.streak >= 2 ? `<b class="streak-badge">${p.streak} 連殺</b>` : ''}<em>${p.dummy ? '固定靶人' : p.team === 0 ? '翠葉隊' : '赤牙隊'}</em>${p.id === 0 ? '<small>YOU</small>' : ''}</span><span class="stats">${p.kills} <span>/ ${p.deaths}</span></span></div>`).join('');
   }
 }
 function showOverlay(title, description, button) {
@@ -257,13 +261,25 @@ function pause() {
 $('play-button').onclick = () => {
   if (state !== 'paused') {
     const input = $('kill-target');
-    if (!$('endless-mode').checked && !input.reportValidity()) return;
-    game = new Arena(Math.random, { targetKills: $('endless-mode').checked ? null : input.valueAsNumber });
+    const mode = $('game-mode').value;
+    if (mode === 'team' && !$('endless-mode').checked && !input.reportValidity()) return;
+    game = new Arena(Math.random, { mode, targetKills: mode === 'dummy' || $('endless-mode').checked ? null : input.valueAsNumber });
     particles = []; numbers = []; $('feed').replaceChildren(); scoreCache = ''; shopIntent = null; camera.centerOn(game.players[0]);
   }
   state = 'playing'; $('overlay').hidden = true; $('pause-button').textContent = 'Ⅱ'; canvas.focus();
 };
-$('endless-mode').onchange = () => { $('kill-target').disabled = $('endless-mode').checked; };
+function modeSettings() {
+  const training = $('game-mode').value === 'dummy';
+  $('team-settings').hidden = training; $('practice-note').hidden = !training;
+  $('endless-mode').disabled = training;
+  $('kill-target').disabled = training || $('endless-mode').checked;
+}
+$('game-mode').onchange = modeSettings;
+$('endless-mode').onchange = modeSettings;
+function resetTraining() {
+  if (state === 'playing' && game.resetTraining()) { particles = []; numbers = []; }
+}
+$('training-reset').onclick = resetTraining;
 $('reset-button').onclick = () => {
   state = 'setup';
   showOverlay('設定下一場對局', '自訂隊伍擊殺目標，或選擇無限練習。新局會重設金錢、連殺與升級。', '開始新對局');
@@ -288,6 +304,7 @@ window.addEventListener('keydown', e => {
   if (e.code.startsWith('Arrow') || e.code === 'Space') e.preventDefault();
   if (e.code === 'KeyQ') { e.preventDefault(); aim = camera.aimToWorld(mouse.u, mouse.v); if (!e.repeat) game.fire(0, aim.x, aim.y); }
   if (e.code === 'KeyS') { e.preventDefault(); shopIntent = null; game.stopMove(0); }
+  if (e.code === 'KeyR' && !e.repeat) { e.preventDefault(); resetTraining(); }
   if (e.code === 'KeyB' && !e.repeat) { e.preventDefault(); openShop(); }
 });
 window.addEventListener('blur', () => { mouse.inside = false; if (state === 'playing') pause(); });
