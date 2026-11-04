@@ -1,145 +1,206 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { Arena, segmentHit, RIVER, TARGET, W, H } from '../engine.js';
+import { Arena, segmentHit, RIVER, TARGET, W, H, SHOP_RANGE, UPGRADES } from '../engine.js';
 
 function isolated() {
   const g = new Arena(() => .5);
-  for (const p of g.players) { p.shield = 0; p.aiTimer = 99999; }
+  for (const p of g.players) { p.shield = 0; p.aiTimer = 99999; p.regen = 0; }
   g.players[2].hp = g.players[3].hp = 0;
   g.players[2].dead = g.players[3].dead = 99999;
   return g;
 }
-function advance(g, seconds) { for (let i = 0; i < seconds * 60; i++) g.tick(1 / 60); }
-test('swept collision catches targets between frames', () => {
+function advance(g, seconds) { for (let i = 0; i < Math.ceil(seconds * 60); i++) g.tick(1 / 60); }
+function battle() {
+  const g = isolated(); g.move = () => {};
+  g.players[0].x = RIVER.left - 130; g.players[1].x = RIVER.right + 130;
+  g.players[0].y = g.players[1].y = H / 2;
+  return g;
+}
+function atShop(g, side = 0) {
+  const p = g.players[0], m = g.merchants[side]; p.x = m.x; p.y = m.y; return p;
+}
+function emptyReturning() {
+  const g = battle(), [owner, target] = g.players;
+  owner.x = 500; owner.y = H / 2;
+  target.x = 900; target.y = owner.y + 100;
+  g.fire(0, 1500, owner.y);
+  for (let i = 0; i < 120 && !g.hooks[0]?.returning; i++) g.tick(1 / 60);
+  assert.equal(target.hp, 100); assert.equal(g.hooks[0]?.returning, true); return g;
+}
+
+test('swept hook collision catches between-frame targets', () => {
   assert.equal(segmentHit(0, 0, 100, 0, 50, 20, 25), true);
   assert.equal(segmentHit(0, 0, 100, 0, 50, 30, 25), false);
 });
-test('right-click destination is reached exactly without overshooting or following aim', () => {
+test('two balanced teams start on their respective left and right territories', () => {
+  const g = new Arena();
+  assert.equal(g.players.filter(p => p.team === 0).length, 2);
+  assert.equal(g.players.filter(p => p.team === 1).length, 2);
+  assert.ok(g.players.every(p => p.team === 0 ? p.x < RIVER.left : p.x > RIVER.right));
+  assert.ok(g.players.every(p => p.gold === 0));
+});
+test('right-click movement arrives exactly, independently of aiming', () => {
+  const g = isolated(), p = g.players[0], x = p.x, y = p.y;
+  g.moveTo(0, x - 100, y + 50); g.tick(.05, { aim: { x: W, y: 0 } });
+  assert.ok(Math.abs(Math.hypot(p.x - x, p.y - y) - p.moveSpeed * .05) < .001);
+  advance(g, 1); assert.equal(p.x, x - 100); assert.equal(p.y, y + 50); assert.equal(p.moveTarget, null);
+});
+test('vertical river blocks walking across either direction, including after being pulled across', () => {
   const g = isolated(), p = g.players[0];
-  const start = { x: p.x, y: p.y };
-  assert.equal(g.moveTo(0, start.x + 100, start.y + 50), true);
-  g.tick(.05, { aim: { x: 0, y: 0 } });
-  assert.ok(Math.abs(Math.hypot(p.x - start.x, p.y - start.y) - 185 * .05) < .001);
-  advance(g, 3);
-  assert.equal(p.x, start.x + 100); assert.equal(p.y, start.y + 50);
-  assert.equal(p.moveTarget, null); assert.equal(p.vx, 0); assert.equal(p.vy, 0);
-  advance(g, 1); assert.equal(p.x, start.x + 100); assert.equal(p.y, start.y + 50);
+  g.moveTo(0, W, H / 2); advance(g, 3); assert.equal(p.x, RIVER.left - 25);
+  p.x = RIVER.right + 200; g.moveTo(0, 0, H / 2); advance(g, 3); assert.equal(p.x, RIVER.right + 25);
+  g.moveTo(0, W + 100, -100); assert.deepEqual(p.moveTarget, { x: W - 45, y: 55 });
 });
-test('move orders stay on the current bank and inside arena boundaries', () => {
-  const g = isolated(), p = g.players[0];
-  g.moveTo(0, 600, 100); advance(g, 5);
-  assert.equal(p.x, 600); assert.equal(p.y, RIVER.bottom + 25); assert.equal(p.moveTarget, null);
-  p.y = 180; g.moveTo(0, -100, H + 100); advance(g, 7);
-  assert.equal(p.x, 45); assert.equal(p.y, RIVER.top - 25); assert.equal(p.moveTarget, null);
+test('S stops an order and dead or pulled players cannot issue movement', () => {
+  const g = isolated(), p = g.players[0]; g.moveTo(0, 100, 600); advance(g, .2);
+  g.stopMove(0); const x = p.x; advance(g, .5); assert.equal(p.x, x);
+  p.hp = 0; assert.equal(g.moveTo(0, 500, 500), false);
+  p.hp = 100; p.pull = {}; assert.equal(g.moveTo(0, 500, 500), false);
 });
-test('new orders replace destinations, S stops movement, and dead or pulled players cannot move', () => {
-  const g = isolated(), p = g.players[0];
-  g.moveTo(0, 900, 600); advance(g, .3);
-  const before = p.x; g.moveTo(0, 100, 600); advance(g, .3); assert.ok(p.x < before);
-  g.stopMove(0); const x = p.x; advance(g, 1); assert.equal(p.x, x);
-  p.hp = 0; p.dead = 3; assert.equal(g.moveTo(0, 400, 600), false);
-  p.hp = 100; p.pull = {}; assert.equal(g.moveTo(0, 400, 600), false);
+test('outgoing hook crosses the vertical river, damages and pulls back onto the owner bank', () => {
+  const g = battle(), [owner, target] = g.players;
+  target.moveTarget = { x: 3000, y: 1000 };
+  assert.equal(g.fire(0, target.x, target.y), true); assert.equal(g.fire(0, target.x, target.y), false);
+  advance(g, 1); assert.equal(target.hp, 45); assert.equal(target.pull, null); assert.equal(target.moveTarget, null);
+  assert.ok(target.x < RIVER.left); assert.ok(target.x > owner.x, 'target lands on incoming hook side'); assert.equal(target.y, owner.y); assert.equal(g.hooks.length, 0);
 });
-test('hook crosses river, damages, pulls target onto owner bank and respects cooldown', () => {
-  const g = isolated(), [p, target] = g.players;
-  p.x = target.x = 600; p.y = RIVER.bottom + 100; target.y = RIVER.top - 100;
-  target.moveTarget = { x: 700, y: 240 };
-  g.move = () => {};
-  assert.equal(g.fire(0, target.x, target.y), true);
-  assert.equal(g.fire(0, target.x, target.y), false);
-  advance(g, 1);
-  assert.equal(target.hp, 45); assert.equal(target.pull, null); assert.equal(target.moveTarget, null);
-  assert.equal(target.y, p.y); assert.equal(g.hooks.length, 0);
-});
-test('second hook awards a kill, respawn restores health and protection', () => {
-  const g = isolated(), [p, target] = g.players; g.move = () => {};
-  p.x = target.x = 600; p.y = RIVER.bottom + 100; target.y = RIVER.top - 100; target.hp = 45;
-  g.fire(0, target.x, target.y); advance(g, 1);
-  assert.equal(p.kills, 1); assert.equal(target.deaths, 1); assert.equal(target.hp, 0);
-  advance(g, 3); assert.equal(target.hp, 100); assert.ok(target.shield > 0);
-});
-test('spawn protection prevents damage and eight kills ends the match', () => {
-  const g = isolated(), [p, target] = g.players; g.move = () => {};
-  p.x = target.x = 600; p.y = RIVER.bottom + 100; target.y = RIVER.top - 100; target.shield = 2;
-  g.fire(0, target.x, target.y); advance(g, 1); assert.equal(target.hp, 100);
-  advance(g, 2); target.shield = 0; target.hp = 45; p.kills = TARGET - 1;
-  g.fire(0, target.x, target.y); advance(g, 1); assert.equal(g.winner, 0);
-  const time = g.time; advance(g, 1); assert.equal(g.time, time);
-});
-test('releasing a hook after owner dies never strands its victim in the river', () => {
-  const g = isolated(), [p, target] = g.players;
-  const h = { owner: 0, victim: 1, returning: true, x: 600, y: (RIVER.top + RIVER.bottom) / 2 };
-  target.y = (RIVER.top + RIVER.bottom) / 2; target.pull = h; p.hp = 0; p.dead = 3; g.hooks.push(h);
-  g.tick(.02); assert.equal(target.pull, null); assert.ok(target.y <= RIVER.top - 25 || target.y >= RIVER.bottom + 25);
-});
-
-function returningHook() {
-  const g = isolated(), [owner, target] = g.players;
-  g.move = () => {};
-  owner.x = 400; owner.y = RIVER.bottom + 160;
-  target.x = 600; target.y = owner.y + 100;
-  g.fire(0, 1400, owner.y);
-  for (let i = 0; i < 120 && !g.hooks[0]?.returning; i++) g.tick(1 / 60);
-  assert.equal(target.hp, 100, 'outgoing hook missed');
-  assert.equal(g.hooks[0]?.returning, true);
-  return g;
-}
-test('empty returning hook catches a target that steps into its path and pulls once', () => {
-  const g = returningHook(), [owner, target] = g.players;
-  target.x = 900; target.y = owner.y;
-  advance(g, 1);
-  assert.equal(target.hp, 45); assert.equal(target.pull, null);
-  assert.equal(target.y, owner.y); assert.ok(Math.abs(target.x - owner.x) <= 38);
+test('empty returning hook catches an enemy stepping into the return path exactly once', () => {
+  const g = emptyReturning(), [owner, target] = g.players;
+  target.x = 1000; target.y = owner.y; advance(g, 1);
+  assert.equal(target.hp, 45); assert.equal(target.pull, null); assert.equal(g.hooks.length, 0);
   assert.equal(g.events.filter(e => e.type === 'hit').length, 1);
-  assert.equal(g.hooks.length, 0);
 });
-test('return sweep catches a target between frames and includes the last step', () => {
-  for (const finalStep of [false, true]) {
-    const g = returningHook(), [owner, target] = g.players, h = g.hooks[0];
-    h.x = owner.x + (finalStep ? 50 : 250); h.y = owner.y;
-    target.x = h.x - 27; target.y = owner.y;
-    g.tick(.05);
-    assert.equal(target.hp, 45);
-    if (finalStep) { assert.equal(g.hooks.length, 0); assert.equal(target.pull, null); }
+test('return sweep includes its final step and respects spawn protection', () => {
+  for (const protectedTarget of [false, true]) {
+    const g = emptyReturning(), [owner, target] = g.players, h = g.hooks[0];
+    h.x = owner.x + 50; h.y = owner.y; target.x = owner.x + 25; target.y = owner.y;
+    if (protectedTarget) target.shield = 2;
+    g.tick(.05); assert.equal(target.hp, protectedTarget ? 100 : 45); assert.equal(g.hooks.length, 0);
   }
 });
-test('returning hook respects spawn protection, dead targets and already pulled targets', () => {
-  for (const condition of ['protected', 'dead', 'pulled']) {
-    const g = returningHook(), [owner, target] = g.players;
-    target.x = 900; target.y = owner.y;
-    if (condition === 'protected') target.shield = 2;
-    if (condition === 'dead') { target.hp = 0; target.dead = 3; }
-    if (condition === 'pulled') target.pull = {};
-    advance(g, 1);
-    assert.equal(target.hp, condition === 'dead' ? 0 : 100);
-    assert.equal(g.events.filter(e => e.type === 'hit').length, 0);
-  }
+test('allied hooks rescue without damage, kills, money or team score', () => {
+  const g = battle(), [owner, target] = g.players; target.team = owner.team;
+  g.fire(0, target.x, target.y); advance(g, 1);
+  assert.equal(target.hp, 100); assert.equal(target.pull, null); assert.ok(target.x < RIVER.left);
+  assert.equal(owner.gold, 0); assert.equal(owner.kills, 0); assert.equal(g.teams[0].score, 0);
 });
-test('a lethal hit consumes the hook and cannot catch another target on return', () => {
-  const g = isolated(), [owner, target, other] = g.players; g.move = () => {};
-  owner.x = 400; owner.y = RIVER.bottom + 160;
-  target.x = 900; target.y = owner.y; target.hp = 45;
-  other.x = 650; other.y = owner.y + 100; other.hp = 100;
+test('an enemy kill grants exactly one personal coin and one team point', () => {
+  const g = battle(), [owner, target] = g.players; target.hp = 45;
+  g.fire(0, target.x, target.y); advance(g, 1.5);
+  assert.equal(owner.kills, 1); assert.equal(owner.gold, 1); assert.equal(g.teams[0].score, 1);
+  assert.equal(target.hp, 0); assert.equal(target.deaths, 1);
+  assert.equal(g.events.filter(e => e.type === 'kill').length, 1);
+});
+test('lethal outbound hit cannot award another kill or coin during return', () => {
+  const g = battle(), [owner, target, other] = g.players;
+  owner.x = 500; target.x = 1000; target.hp = 45; other.hp = 45; other.x = 750; other.y = owner.y + 100;
   g.fire(0, 1400, owner.y);
   for (let i = 0; i < 120 && target.hp > 0; i++) g.tick(1 / 60);
-  assert.equal(target.hp, 0);
-  other.y = owner.y; advance(g, 1);
-  assert.equal(other.hp, 100); assert.equal(owner.kills, 1);
-  assert.equal(g.events.filter(e => e.type === 'hit').length, 1);
+  other.y = owner.y; advance(g, 1); assert.equal(other.hp, 45); assert.equal(owner.gold, 1);
 });
-test('returning hook catches the first eligible target along its return path', () => {
-  const g = returningHook(), [owner, near, far] = g.players;
-  near.x = 1000; near.y = owner.y;
-  far.hp = 100; far.x = 750; far.y = owner.y;
-  advance(g, 1);
-  assert.equal(near.hp, 45); assert.equal(far.hp, 100);
+test('team victory sums teammate kills and stops the match at eight', () => {
+  const g = battle(), target = g.players[1];
+  g.players[3].hp = 100;
+  for (let i = 0; i < TARGET; i++) { target.hp = 45; g.hit({ owner: i % 2 ? 3 : 0 }, target); }
+  assert.equal(g.players[0].kills, 4); assert.equal(g.players[3].kills, 4);
+  assert.equal(g.players[0].gold, 4); assert.equal(g.players[3].gold, 4);
+  assert.equal(g.teams[0].score, TARGET); assert.equal(g.winner, 0);
+  const time = g.time; advance(g, 1); assert.equal(g.time, time);
 });
-test('enlarged map allows destinations beyond the original arena and legal respawns', () => {
-  const g = isolated(), p = g.players[0];
-  assert.ok(W > 1800); assert.ok(H > 1100);
-  g.moveTo(0, W - 50, H - 110); advance(g, 20);
-  assert.equal(p.x, W - 50); assert.equal(p.y, H - 110);
-  p.hp = 0; p.dead = .01; advance(g, .1);
-  assert.ok(p.x >= 45 && p.x <= W - 45);
-  assert.ok(p.y >= RIVER.bottom + 25 && p.y <= H - 100);
+test('respawns always use team territory even after dying on enemy territory', () => {
+  for (const roll of [0, .5, 1]) {
+    const g = new Arena(() => roll);
+    for (const p of g.players) {
+      p.x = p.team ? 500 : W - 500; p.maxHp = 120; p.gold = 2; p.levels.maxHp = 2;
+      p.hp = 0; p.dead = .01; g.tick(.02);
+      assert.ok(p.team === 0 ? p.x < RIVER.left : p.x > RIVER.right);
+      assert.ok(p.y >= 55 && p.y <= H - 55); assert.equal(p.hp, 120); assert.ok(p.shield > 0);
+      assert.equal(p.gold, 2); assert.equal(p.levels.maxHp, 2);
+    }
+  }
+});
+test('cancelled pulls never strand a victim inside the vertical river', () => {
+  const g = battle(), [owner, target] = g.players;
+  const h = { owner: 0, victim: 1, x: W / 2, y: H / 2 };
+  target.x = W / 2; target.pull = h; owner.hp = 0; owner.dead = 3; g.hooks.push(h);
+  g.tick(.02); assert.equal(target.pull, null); assert.ok(target.x <= RIVER.left - 25 || target.x >= RIVER.right + 25);
+});
+test('two neutral invulnerable merchants are centered on the outer side boundaries', () => {
+  const g = new Arena(); const [left, right] = g.merchants;
+  assert.equal(left.y, H / 2); assert.equal(right.y, H / 2);
+  assert.ok(left.x < 100); assert.ok(right.x > W - 100);
+  assert.ok(g.merchants.every(m => m.team === null && m.invulnerable && !m.hookable));
+});
+test('hooks pass through merchants without damaging, pulling or consuming the hook', () => {
+  const g = battle(), [owner, target] = g.players, m = g.merchants[0];
+  owner.x = 500; target.x = 55; owner.y = target.y = m.y;
+  const before = JSON.stringify(g.merchants);
+  g.fire(0, 0, m.y); advance(g, 1); assert.equal(target.hp, 45);
+  assert.equal(JSON.stringify(g.merchants), before);
+  g.hit({ owner: 0 }, m); assert.equal(JSON.stringify(g.merchants), before);
+});
+test('both teams can buy from either merchant when physically nearby', () => {
+  const g = new Arena();
+  for (const p of g.players) for (const m of g.merchants) {
+    p.x = m.x; p.y = m.y; p.gold = 1;
+    assert.equal(g.canShop(p.id, m.id), true); assert.equal(g.buy(p.id, 'maxHp', m.id), true); assert.equal(p.gold, 0);
+  }
+});
+test('shop rejects insufficient money, distance, dead/pulled players, invalid item or merchant', () => {
+  const g = new Arena(), p = atShop(g); p.gold = 0;
+  assert.equal(g.buy(0, 'maxHp'), false); p.gold = 1;
+  assert.equal(g.buy(0, 'password'), false); assert.equal(g.buy(0, 'maxHp', 99), false);
+  p.x += SHOP_RANGE + 1; assert.equal(g.buy(0, 'maxHp'), false);
+  atShop(g); p.hp = 0; assert.equal(g.buy(0, 'maxHp'), false);
+  p.hp = 100; p.pull = {}; assert.equal(g.buy(0, 'maxHp'), false); assert.equal(p.gold, 1); assert.equal(p.maxHp, 100);
+});
+test('all seven upgrades cost one coin each and apply conservative increments', () => {
+  const g = new Arena(), p = atShop(g); p.gold = 7;
+  const before = { ...p };
+  for (const u of UPGRADES) { const gold = p.gold; assert.equal(g.buy(0, u.key), true); assert.equal(p.gold, gold - 1); assert.equal(p.levels[u.key], 1); }
+  assert.equal(p.maxHp, before.maxHp + 5); assert.equal(p.hp, 105);
+  assert.equal(p.regen, before.regen + .1); assert.equal(p.moveSpeed, before.moveSpeed + 3);
+  assert.equal(p.hookRadius, before.hookRadius + .75); assert.equal(p.hookCooldown, before.hookCooldown * .97);
+  assert.equal(p.hookSpeed, before.hookSpeed + 25); assert.equal(p.hookRange, before.hookRange + 25); assert.equal(p.gold, 0);
+});
+test('purchased regeneration and movement speed affect actual simulation', () => {
+  const g = isolated(), p = atShop(g); p.regen = .5; p.gold = 2;
+  g.buy(0, 'regen'); g.buy(0, 'moveSpeed'); p.hp = 50;
+  g.moveTo(0, p.x + 500, p.y); const x = p.x; advance(g, 1);
+  assert.ok(Math.abs(p.hp - 50.6) < .001); assert.ok(Math.abs(p.x - x - 188) < .001);
+  p.hp = p.maxHp; advance(g, 1); assert.equal(p.hp, p.maxHp);
+});
+test('larger hook head changes actual hit detection on both cast legs', () => {
+  for (const upgraded of [false, true]) {
+    const g = battle(), [owner, target] = g.players;
+    atShop(g); owner.gold = 1; if (upgraded) g.buy(0, 'hookRadius');
+    owner.x = 500; target.x = 800; target.y = owner.y + 28.5;
+    g.fire(0, 1500, owner.y); advance(g, 1.9);
+    assert.equal(target.hp, upgraded ? 45 : 100);
+  }
+});
+test('purchased hook range, speed and cooldown apply to the next cast', () => {
+  const g = battle(), p = atShop(g); p.gold = 3;
+  for (const key of ['hookRange', 'hookSpeed', 'hookCooldown']) g.buy(0, key);
+  p.x = 500; p.y = H / 2; g.players[1].y += 200;
+  g.fire(0, 3000, p.y); assert.equal(p.cooldown, 2.4 * .97);
+  const h = g.hooks[0]; assert.equal(h.range, 845); assert.equal(h.speed, 875); assert.ok(h.returnSpeed > 1080);
+  const x = h.x; g.tick(.05); assert.equal(h.x - x, 875 * .05);
+  for (let i = 0; i < 120 && !h.returning; i++) g.tick(1 / 60);
+  assert.equal(h.distance, 845); assert.equal(h.returning, true);
+});
+test('upgrading during an active hook does not change the existing projectile', () => {
+  const g = battle(), p = atShop(g); p.gold = 1; g.fire(0, 900, p.y);
+  const h = g.hooks[0]; g.buy(0, 'hookRange'); assert.equal(p.hookRange, 845); assert.equal(h.range, 820);
+});
+test('cooldown has a safe minimum and buying at the limit does not spend money', () => {
+  const g = new Arena(), p = atShop(g); p.gold = 200;
+  while (g.buy(0, 'hookCooldown')) { /* buy to the documented floor */ }
+  assert.equal(p.hookCooldown, .8); const gold = p.gold;
+  assert.equal(g.buy(0, 'hookCooldown'), false); assert.equal(p.gold, gold);
+});
+test('new match resets currency, upgrades, team points and player stats', () => {
+  const g = new Arena(), p = atShop(g); p.gold = 2; g.buy(0, 'maxHp'); g.teams[0].score = 3;
+  const fresh = new Arena(); assert.equal(fresh.players[0].gold, 0); assert.equal(fresh.players[0].maxHp, 100);
+  assert.equal(fresh.players[0].levels.maxHp, 0); assert.equal(fresh.teams[0].score, 0);
 });

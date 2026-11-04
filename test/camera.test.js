@@ -1,29 +1,37 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { Camera, VIEW_W, VIEW_H } from '../camera.js';
+import { Camera, VIEW_W, VIEW_H, PROJECTION } from '../camera.js';
 import { W, H } from '../engine.js';
+const close = (a, b) => assert.ok(Math.abs(a - b) < .00001, `${a} != ${b}`);
 
-test('viewport shows one ninth of the world, preserving the map aspect ratio', () => {
-  assert.equal(VIEW_W * VIEW_H / (W * H), 1 / 9);
-  assert.equal(VIEW_W / VIEW_H, W / H);
+test('tilted viewport preserves one ninth of the world area', () => {
+  const c = new Camera(); c.centerOn({ x: W / 2, y: H / 2 });
+  const points = c.corners();
+  const area = Math.abs(points.reduce((sum, p, i) => { const next = points[(i + 1) % points.length]; return sum + p.x * next.y - next.x * p.y; }, 0)) / 2;
+  close(area / (W * H), 1 / 9); close(PROJECTION.a * PROJECTION.d, 1);
 });
-test('camera centers on the hero while world edges remain clamped', () => {
+test('fixed follow camera centers hero, and tilted visible corners never leave world boundaries', () => {
   const c = new Camera(); c.centerOn({ x: 1800, y: 1400 });
   assert.deepEqual(c.screenToWorld(.5, .5), { x: 1800, y: 1400 });
-  c.pan(-10000, -10000); assert.equal(c.x, 0); assert.equal(c.y, 0);
-  c.pan(10000, 10000); assert.equal(c.x, W - VIEW_W); assert.equal(c.y, H - VIEW_H);
-  c.centerOn({ x: 0, y: 0 }); assert.deepEqual(c.screenToWorld(0, 0), { x: 0, y: 0 });
+  for (const point of [{ x: -10000, y: -10000 }, { x: 10000, y: 10000 }, { x: 0, y: H }, { x: W, y: 0 }]) {
+    c.centerOn(point);
+    for (const p of c.corners()) assert.ok(p.x >= -.00001 && p.x <= W + .00001 && p.y >= -.00001 && p.y <= H + .00001);
+  }
 });
-test('mouse targeting includes the camera offset and updates after the camera moves', () => {
+test('projected cursor converts back to the same world point after camera moves', () => {
+  const c = new Camera();
+  for (const hero of [{ x: 1500, y: 1000 }, { x: 2000, y: 1200 }, { x: 90, y: H / 2 }]) {
+    c.centerOn(hero);
+    for (const point of [{ x: 1710, y: 1000 }, { x: 2000, y: 1500 }, hero]) {
+      const screen = c.worldToScreen(point), world = c.screenToWorld(screen.x / VIEW_W, screen.y / VIEW_H);
+      close(world.x, point.x); close(world.y, point.y);
+    }
+  }
+});
+test('screen positions include oblique ground offset, not only flat x and y', () => {
   const c = new Camera(); c.centerOn({ x: 1700, y: 1300 });
-  const before = c.screenToWorld(.75, .25);
-  c.pan(300, -100); const after = c.screenToWorld(.75, .25);
-  assert.equal(after.x - before.x, 300); assert.equal(after.y - before.y, -100);
-  assert.deepEqual(after, { x: c.x + 900, y: c.y + 187.5 });
-});
-test('minimap navigates the whole world and clamps dragging beyond map edges', () => {
-  const c = new Camera(); c.centerOn(c.minimapToWorld(.5, .5));
-  assert.deepEqual(c.screenToWorld(.5, .5), { x: W / 2, y: H / 2 });
-  c.centerOn(c.minimapToWorld(1.2, -1));
-  assert.equal(c.x, W - VIEW_W); assert.equal(c.y, 0);
+  const center = c.worldToScreen({ x: 1700, y: 1300 });
+  const down = c.worldToScreen({ x: 1700, y: 1400 });
+  close(down.x - center.x, 18); close(down.y - center.y, 80);
+  assert.equal(VIEW_W, 1200); assert.equal(VIEW_H, 750);
 });
