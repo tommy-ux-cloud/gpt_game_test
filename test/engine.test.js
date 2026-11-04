@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { Arena, segmentHit, RIVER, TARGET, W, H, SHOP_RANGE, UPGRADES } from '../engine.js';
+import { Arena, segmentHit, segmentHitTime, RIVER, TARGET, W, H, SHOP_RANGE, UPGRADES } from '../engine.js';
 
 function isolated() {
   const g = new Arena(() => .5);
@@ -303,4 +303,50 @@ test('damage purchases affect future casts while an existing projectile keeps it
   target.hp = 100; g.fire(0, target.x, target.y); advance(g, .5); assert.equal(target.hp, 43);
   owner.hp = 0; owner.dead = .01; advance(g, .1); assert.equal(owner.hookDamage, 57); assert.equal(owner.levels.hookDamage, 1);
   assert.equal(new Arena().players[0].hookDamage, 55);
+});
+
+test('collision chooses the earliest surface contact, not the nearest character center', () => {
+  const g = battle(), [owner, grazed, direct] = g.players;
+  owner.x = 500; owner.y = H / 2;
+  grazed.x = 550; grazed.y = owner.y + 27;
+  direct.x = 560; direct.y = owner.y; direct.hp = 100;
+  const h = { owner: 0, x: 600, y: owner.y, radius: 8, damage: 55, hasHit: false, victim: null };
+  g.checkHit(h, 500, owner.y);
+  assert.equal(h.victim, direct.id); assert.equal(direct.hp, 45); assert.equal(grazed.hp, 100);
+});
+test('returning collision also chooses the first surface touched', () => {
+  const g = battle(), [owner, grazed, direct] = g.players;
+  owner.x = 400; owner.y = H / 2;
+  grazed.x = 550; grazed.y = owner.y + 27;
+  direct.x = 540; direct.y = owner.y; direct.hp = 100;
+  const h = { owner: 0, x: 500, y: owner.y, radius: 8, damage: 55, returning: true, hasHit: false, victim: null };
+  g.checkHit(h, 600, owner.y); assert.equal(h.victim, direct.id); assert.equal(grazed.hp, 100);
+});
+test('swept circle time handles entry, tangency, overlap, stationary and missed segments', () => {
+  assert.ok(Math.abs(segmentHitTime(0, 0, 100, 0, 50, 0, 10) - .4) < .00001);
+  assert.equal(segmentHitTime(0, 0, 100, 0, 50, 10, 10), .5);
+  assert.equal(segmentHitTime(0, 0, 0, 0, 5, 0, 10), 0);
+  assert.equal(segmentHitTime(0, 0, 0, 0, 15, 0, 10), null);
+  assert.equal(segmentHitTime(0, 0, 100, 0, 50, 11, 10), null);
+  assert.equal(segmentHitTime(0, 0, 100, 0, -50, 0, 10), null);
+});
+test('moving-target sweep catches an actual crossing even when the endpoint misses', () => {
+  const g = battle(), [owner, target] = g.players;
+  owner.x = 500; owner.y = H / 2;
+  target.x = 570; target.y = owner.y + 27.7;
+  const starts = g.players.map(p => ({ x: p.x, y: p.y })); starts[target.id] = { x: 570, y: owner.y + 21 };
+  const h = { owner: 0, x: 600, y: owner.y, radius: 8, damage: 55, hasHit: false, victim: null };
+  // Ending inside the radius is not required: during the frame the paths intersect.
+  target.y = owner.y + 29;
+  assert.equal(segmentHit(500, owner.y, 600, owner.y, target.x, target.y, 28), false);
+  g.checkHit(h, 500, owner.y, starts); assert.equal(target.hp, 45);
+});
+test('relative sweep rejects a moving target whose final position alone suggests a false hit', () => {
+  const g = battle(), [owner, target] = g.players;
+  owner.x = 500; owner.y = H / 2;
+  target.x = 500; target.y = owner.y + 27;
+  const starts = g.players.map(p => ({ x: p.x, y: p.y })); starts[target.id] = { x: 500, y: owner.y + 35 };
+  const h = { owner: 0, x: 600, y: owner.y, radius: 8, damage: 55, hasHit: false, victim: null };
+  assert.equal(segmentHit(500, owner.y, 600, owner.y, target.x, target.y, 28), true);
+  g.checkHit(h, 500, owner.y, starts); assert.equal(target.hp, 100); assert.equal(h.hasHit, false);
 });

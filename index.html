@@ -11,7 +11,7 @@
   <header class="topbar">
     <a class="brand" href="./" aria-label="鉤魂競技場首頁"><span class="brand-icon">↪</span> HOOK<span>ARENA</span><small>鉤魂競技場</small></a>
     <nav><span class="active">競技場</span><button id="help-button">遊戲說明 <span>↗</span></button></nav>
-    <span class="build"><i></i> 單人練習 · v0.7</span>
+    <span class="build"><i></i> 單人練習 · v0.8</span>
   </header>
   <main>
     <section class="heading"><div><div class="eyebrow">THE PIT IS WAITING</div><h1>一鉤，定勝負<span>。</span></h1><p>預判走位，甩出鎖鏈。把勝利拉到你面前。</p></div><div class="mode"><span class="mode-icon">⌖</span><div><strong>訓練競技場</strong><small id="mode-description">2 對 2 · 率先 30 擊殺</small></div></div></section>
@@ -20,7 +20,7 @@
         <div class="arena-bar"><span><i></i> THE SUNKEN YARD <small>沉沒庭院</small></span><div><strong id="team-score" aria-label="隊伍比分">0 : 0</strong><span id="timer">00:00</span><span id="gold-text">0 金錢</span><button id="shop-button">B 商店</button><button id="fullscreen-button" aria-pressed="false">放大競技場</button><button id="pause-button" aria-label="暫停遊戲">Ⅱ</button><button id="sound-button" aria-label="開啟音效">音效 關</button></div></div>
         <div class="canvas-wrap" id="canvas-wrap">
           <canvas id="arena" width="1200" height="750" aria-label="鉤魂競技場：使用滑鼠右鍵點地移動，滑鼠瞄準，按 Q 出鉤，S 停止移動" tabindex="0"></canvas>
-          <div class="camera-caption"><strong>2.5D 視野 · 全圖 1/9</strong><span id="camera-mode">2.5D · 固定跟隨角色 · 翠葉隊</span></div>
+          <div class="camera-caption"><strong>MOBA 斜俯視 · 全圖 1/9</strong><span id="camera-mode">固定跟隨 · 55° 高位斜俯視</span></div>
           <div id="streak-text" class="streak-hud">本條命首殺 $1</div>
           <div id="feed" class="feed" aria-live="polite"></div>
           <div id="overlay" class="overlay"><div class="overlay-card"><div class="seal">↪</div><div class="eyebrow">WELCOME TO THE PIT</div><h2 id="overlay-title">獵物，還是獵人？</h2><p id="overlay-description">掌握鎖鏈的距離，讓每一鉤都有意義。<br>你與鐵顎守住左側，對抗右側赤牙與幽潮。<br>首殺 $1 · 第二殺起每殺 $2 · 升級每次 $1。</p><div id="match-settings" class="match-settings"><label for="kill-target">隊伍勝利擊殺數 <input id="kill-target" type="number" min="1" max="9999" step="1" value="30" required></label><label class="endless-option"><input id="endless-mode" type="checkbox"> 無限練習，不設擊殺上限</label></div><button id="play-button" class="primary">進入競技場 <span>→</span></button><button id="reset-button" class="reset-match" hidden>重新設定對局</button><small id="overlay-hint">右鍵移動 · Q 出鉤 · B 商店 · S 停止</small></div></div>
@@ -45,7 +45,7 @@
     <div id="shop-items"></div><p class="shop-note">本條命首殺 $1，第二殺起每殺 $2 · 終結獎金＝對手連殺數<br>全部升級每次 1 金錢 · 死亡保留金錢與升級<br>購物期間戰鬥仍持續；商人無敵、無隊伍，不會被鉤中。</p>
   </dialog>
   <dialog id="help"><button id="close-help" class="close" aria-label="關閉說明">×</button><div class="eyebrow">FIELD MANUAL</div><h2>讓每一鉤都有意義。</h2>
-    <p>滑鼠右鍵點地移動，Q 朝游標出鉤，S 停止，Esc / P 暫停。鏡頭固定跟隨你的角色，只顯示全圖約 1/9；小地圖僅提供全圖資訊。</p>
+    <p>滑鼠右鍵點地移動，Q 朝游標出鉤（瞄準角色身體），S 停止，Esc / P 暫停。鏡頭固定跟隨你的角色，只顯示全圖約 1/9；小地圖僅提供全圖資訊。</p>
     <p>你與鐵顎屬於左側翠葉隊，赤牙與幽潮屬於右側赤牙隊。中央直向河道不可步行，鉤子可以穿越；被拉過河後可在當地半場活動。重生只會出現在自己的隊伍半場。</p>
     <p>空鉤出去和回收途中都能命中；每次出鉤最多命中一人。命中敵人造成基礎 55 傷害（可升級）並拉回，鉤中隊友只救援、不造成傷害。開局可自訂隊伍勝利擊殺數（預設 30），或選擇無限練習。暫停後可重新設定並開始新局。</p>
     <p>每條命首殺獲得 $1，第二殺起每殺 $2，死亡後連殺歸零。終結至少兩連殺的敵人，另外獲得等同對手連殺數的獎金（例如終結三連殺另加 $3）。左右外側邊線中央各有一位中立商人；兩隊都能使用，商人無敵且不會被鉤中。按 B 檢視商店或點擊商人，靠近商人才能購買。每次升級花費 1 金錢，死亡保留升級與金錢，重開對局才歸零。</p>

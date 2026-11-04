@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { Camera, VIEW_W, VIEW_H, PROJECTION } from '../camera.js';
+import { Camera, VIEW_W, VIEW_H, PROJECTION, HOOK_HEIGHT, CAMERA_PITCH } from '../camera.js';
 import { W, H } from '../engine.js';
 const close = (a, b) => assert.ok(Math.abs(a - b) < .00001, `${a} != ${b}`);
 
@@ -28,10 +28,25 @@ test('projected cursor converts back to the same world point after camera moves'
     }
   }
 });
-test('screen positions include oblique ground offset, not only flat x and y', () => {
+test('MOBA framing foreshortens depth without skewing straight map boundaries', () => {
   const c = new Camera(); c.centerOn({ x: 1700, y: 1300 });
   const center = c.worldToScreen({ x: 1700, y: 1300 });
   const down = c.worldToScreen({ x: 1700, y: 1400 });
-  close(down.x - center.x, 18); close(down.y - center.y, 80);
+  close(down.x - center.x, 0); close(down.y - center.y, 100 * PROJECTION.d);
+  close(PROJECTION.d / PROJECTION.a, Math.sin(CAMERA_PITCH * Math.PI / 180));
   assert.equal(VIEW_W, 1200); assert.equal(VIEW_H, 750);
+});
+
+test('aiming at the visible torso maps to the target collision center while walking stays on the ground', () => {
+  const c = new Camera();
+  for (const hero of [{ x: 1580, y: 1015 }, { x: 90, y: H / 2 }, { x: W - 90, y: H / 2 }]) {
+    c.centerOn(hero);
+    const target = { x: hero.x + 300, y: hero.y + 60 };
+    const body = c.hookToScreen(target), feet = c.worldToScreen(target);
+    close(feet.y - body.y, HOOK_HEIGHT); close(feet.x, body.x);
+    const aimed = c.aimToWorld(body.x / VIEW_W, body.y / VIEW_H);
+    close(aimed.x, target.x); close(aimed.y, target.y);
+    const ground = c.screenToWorld(body.x / VIEW_W, body.y / VIEW_H);
+    close(ground.y, target.y - HOOK_HEIGHT / PROJECTION.d);
+  }
 });

@@ -1,5 +1,5 @@
 import { Arena, W, H, RIVER, UPGRADES, upgradeValue, SHOP_RANGE } from './engine.js';
-import { Camera, VIEW_W, VIEW_H, PROJECTION } from './camera.js';
+import { Camera, VIEW_W, VIEW_H, PROJECTION, HOOK_HEIGHT } from './camera.js';
 
 const $ = id => document.getElementById(id);
 const canvas = $('arena'), ctx = canvas.getContext('2d');
@@ -60,7 +60,7 @@ function burst(x, y, color, count = 20) {
 function events() {
   for (const e of game.events.splice(0)) {
     if (e.type === 'fire') tone(230, .12, 'triangle');
-    if (e.type === 'hit') { burst(e.x, e.y, e.color); numbers.push({ x: e.x, y: e.y - 35, life: .9, text: e.damage ? `−${e.damage}` : '救援' }); tone(100, .2, 'sawtooth', .025); }
+    if (e.type === 'hit') { burst(e.x + HOOK_HEIGHT * PROJECTION.c / PROJECTION.d / PROJECTION.a, e.y - HOOK_HEIGHT / PROJECTION.d, e.color); numbers.push({ x: e.x, y: e.y - HOOK_HEIGHT / PROJECTION.d - 35, life: .9, text: e.damage ? `−${e.damage}` : '救援' }); tone(100, .2, 'sawtooth', .025); }
     if (e.type === 'spawn') { burst(e.x, e.y, e.color, 30); camera.centerOn(game.players[0]); }
     if (e.type === 'purchase' && e.player === 0) { tone(650, .12); shopCache = ''; }
     if (e.type === 'kill') {
@@ -147,6 +147,9 @@ function draw(t) {
     ctx.beginPath(); ctx.ellipse(0, 0, 15 + Math.sin(t * 7) * 2, 8, 0, 0, Math.PI * 2); ctx.stroke();
     ctx.beginPath(); ctx.moveTo(-5, 0); ctx.lineTo(0, 4); ctx.lineTo(6, -4); ctx.stroke(); ctx.restore();
   }
+  ctx.save();
+  const liftY = -HOOK_HEIGHT / PROJECTION.d, liftX = -PROJECTION.c * liftY / PROJECTION.a;
+  ctx.translate(liftX, liftY);
   if (state === 'playing' && game.players[0].hp > 0 && !game.players[0].pull) {
     const p = game.players[0], a = Math.atan2(aim.y - p.y, aim.x - p.x), d = Math.min(p.hookRange, Math.hypot(aim.x - p.x, aim.y - p.y));
     ctx.strokeStyle = '#d6ed9030'; ctx.setLineDash([4, 10]); ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(p.x + Math.cos(a) * d, p.y + Math.sin(a) * d); ctx.stroke(); ctx.setLineDash([]);
@@ -159,9 +162,15 @@ function draw(t) {
     ctx.strokeStyle = '#111b15'; ctx.lineWidth = 5; ctx.beginPath(); ctx.moveTo(0, 2); ctx.lineTo(d, 2); ctx.stroke();
     ctx.strokeStyle = p.color; ctx.lineWidth = 3; ctx.setLineDash([7, 4]); ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(d, 0); ctx.stroke(); ctx.setLineDash([]);
     ctx.restore();
-    const head = camera.worldToScreen(h), hand = camera.worldToScreen(p);
-    standAt(h.x, h.y); ctx.rotate(Math.atan2(head.y - hand.y, head.x - hand.x)); ctx.scale(h.radius / 8, h.radius / 8); ctx.strokeStyle = '#e3e4c9'; ctx.lineWidth = 4; ctx.lineCap = 'round'; ctx.beginPath(); ctx.moveTo(-8, 0); ctx.lineTo(9, 0); ctx.bezierCurveTo(20, 0, 21, 17, 8, 18); ctx.lineTo(8, 10); ctx.stroke(); ctx.restore();
+    // The visible head is centered on, and bounded by, its actual world-space radius.
+    ctx.save(); ctx.translate(h.x, h.y); ctx.rotate(Math.atan2(h.y - p.y, h.x - p.x));
+    const r = h.radius;
+    ctx.fillStyle = '#e3e4c921'; ctx.beginPath(); ctx.arc(0, 0, r, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = '#edf0d5'; ctx.lineWidth = Math.max(1.5, r * .2); ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(-r * .75, -r * .25); ctx.lineTo(r * .3, -r * .25);
+    ctx.bezierCurveTo(r * .95, -r * .25, r * .95, r * .7, r * .1, r * .7); ctx.lineTo(r * .1, r * .15); ctx.stroke(); ctx.restore();
   }
+  ctx.restore();
   const actors = [
     ...game.players.filter(p => p.hp > 0).map(p => ({ y: p.y, draw: () => drawPlayer(p, t) })),
     ...game.merchants.map(m => ({ y: m.y, draw: () => drawMerchant(m) })),
@@ -188,11 +197,11 @@ function drawMinimap() {
   const corners = camera.corners(); mini.beginPath();
   corners.forEach((p, i) => i ? mini.lineTo(p.x / W * mw, p.y / H * mh) : mini.moveTo(p.x / W * mw, p.y / H * mh));
   mini.closePath(); mini.fill(); mini.stroke();
-  $('camera-mode').textContent = '2.5D · 固定跟隨角色 · 翠葉隊';
+  $('camera-mode').textContent = '固定跟隨 · 55° 高位斜俯視';
 }
 function updateCamera() {
   camera.centerOn(game.players[0]);
-  aim = camera.screenToWorld(mouse.u, mouse.v);
+  aim = camera.aimToWorld(mouse.u, mouse.v);
 }
 const formatStat = (p, key) => key === 'hookCooldown' || key === 'regen' ? p[key].toFixed(2) : key === 'hookRadius' ? p[key].toFixed(2) : Math.round(p[key]);
 function shopView() {
@@ -277,7 +286,7 @@ window.addEventListener('keydown', e => {
   if (e.code === 'Escape' || e.code === 'KeyP') { if (!e.repeat) pause(); return; }
   if (state !== 'playing' || e.target instanceof HTMLButtonElement) return;
   if (e.code.startsWith('Arrow') || e.code === 'Space') e.preventDefault();
-  if (e.code === 'KeyQ') { e.preventDefault(); aim = camera.screenToWorld(mouse.u, mouse.v); if (!e.repeat) game.fire(0, aim.x, aim.y); }
+  if (e.code === 'KeyQ') { e.preventDefault(); aim = camera.aimToWorld(mouse.u, mouse.v); if (!e.repeat) game.fire(0, aim.x, aim.y); }
   if (e.code === 'KeyS') { e.preventDefault(); shopIntent = null; game.stopMove(0); }
   if (e.code === 'KeyB' && !e.repeat) { e.preventDefault(); openShop(); }
 });
@@ -286,7 +295,7 @@ document.addEventListener('visibilitychange', () => { if (document.hidden && sta
 function pointer(e) {
   const rect = canvas.getBoundingClientRect();
   mouse.u = (e.clientX - rect.left) / rect.width; mouse.v = (e.clientY - rect.top) / rect.height; mouse.inside = true;
-  aim = camera.screenToWorld(mouse.u, mouse.v);
+  aim = camera.aimToWorld(mouse.u, mouse.v);
 }
 canvas.addEventListener('pointermove', pointer);
 canvas.addEventListener('pointerleave', () => { mouse.inside = false; });
@@ -295,7 +304,7 @@ canvas.addEventListener('pointerdown', e => {
   pointer(e); canvas.focus();
   const merchant = game.merchants.find(m => { const screen = camera.worldToScreen(m); return Math.abs(mouse.u * VIEW_W - screen.x) < 55 && mouse.v * VIEW_H > screen.y - 100 && mouse.v * VIEW_H < screen.y + 35; });
   if (merchant && (e.button === 0 || e.button === 2)) { if (game.canShop(0, merchant.id)) openShop(); else travelToMerchant(merchant); return; }
-  if (e.button === 2) { e.preventDefault(); shopIntent = null; game.moveTo(0, aim.x, aim.y); }
+  if (e.button === 2) { e.preventDefault(); shopIntent = null; const ground = camera.screenToWorld(mouse.u, mouse.v); game.moveTo(0, ground.x, ground.y); }
 });
 canvas.addEventListener('contextmenu', e => e.preventDefault());
 $('shop-button').onclick = openShop;
@@ -318,7 +327,7 @@ function frame(now) {
     if (game.players[0].hp <= 0 || game.players[0].pull) shopIntent = null;
     if (shopIntent !== null && game.canShop(0, shopIntent)) { shopIntent = null; game.stopMove(0); openShop(); }
     camera.centerOn(game.players[0]);
-    aim = camera.screenToWorld(mouse.u, mouse.v);
+    aim = camera.aimToWorld(mouse.u, mouse.v);
     particles = particles.filter(p => { p.x += p.vx * dt; p.y += p.vy * dt; p.life -= dt; return p.life > 0; });
     numbers = numbers.filter(n => { n.y -= dt * 30; n.life -= dt; return n.life > 0; });
   }

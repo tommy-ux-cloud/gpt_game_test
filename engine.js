@@ -12,11 +12,18 @@ export const UPGRADES = [
   { key: 'hookDamage', name: '鉤子傷害', unit: '傷害', step: '+2' },
 ];
 const clamp = (n, a, b) => Math.max(a, Math.min(b, n));
-export function segmentHit(ax, ay, bx, by, x, y, radius) {
-  const dx = bx - ax, dy = by - ay;
-  const t = clamp(((x - ax) * dx + (y - ay) * dy) / (dx * dx + dy * dy || 1), 0, 1);
-  return Math.hypot(ax + t * dx - x, ay + t * dy - y) <= radius;
+export function segmentHitTime(ax, ay, bx, by, x, y, radius) {
+  const dx = bx - ax, dy = by - ay, fx = ax - x, fy = ay - y;
+  const c = fx * fx + fy * fy - radius * radius;
+  if (c <= 0) return 0;
+  const a = dx * dx + dy * dy;
+  if (a === 0) return null;
+  const b = 2 * (fx * dx + fy * dy), discriminant = b * b - 4 * a * c;
+  if (discriminant < 0) return null;
+  const t = (-b - Math.sqrt(discriminant)) / (2 * a);
+  return t >= 0 && t <= 1 ? t : null;
 }
+export function segmentHit(...args) { return segmentHitTime(...args) !== null; }
 export function upgradeValue(p, key) {
   const additions = { maxHp: 5, regen: .1, moveSpeed: 3, hookRadius: .75, hookSpeed: 25, hookRange: 25, hookDamage: 2 };
   return key === 'hookCooldown' ? Math.max(.8, p.hookCooldown * .97) : p[key] + additions[key];
@@ -105,12 +112,15 @@ export class Arena {
     } else { target.pull = h; h.victim = target.id; }
     h.returning = true;
   }
-  checkHit(h, ox, oy) {
+  checkHit(h, ox, oy, starts) {
     if (h.hasHit) return;
     // Merchants are deliberately outside the player collision set, on both legs.
-    const target = this.players.filter(p => p.id !== h.owner && p.hp > 0 && p.shield <= 0 && !p.pull && segmentHit(ox, oy, h.x, h.y, p.x, p.y, 20 + h.radius))
-      .sort((a, b) => Math.hypot(a.x - ox, a.y - oy) - Math.hypot(b.x - ox, b.y - oy))[0];
-    if (target) this.hit(h, target);
+    const contacts = this.players.filter(p => p.id !== h.owner && p.hp > 0 && p.shield <= 0 && !p.pull).map(p => {
+      const start = starts?.[p.id] || p;
+      const t = segmentHitTime(ox - start.x, oy - start.y, h.x - p.x, h.y - p.y, 0, 0, 20 + h.radius);
+      return { player: p, t };
+    }).filter(contact => contact.t !== null).sort((a, b) => a.t - b.t || a.player.id - b.player.id);
+    if (contacts.length) this.hit(h, contacts[0].player);
   }
   respawn(p) {
     p.x = p.team === 0 ? 180 + this.random() * (RIVER.left - 360) : RIVER.right + 180 + this.random() * (W - RIVER.right - 360);
@@ -120,6 +130,7 @@ export class Arena {
   tick(dt, input = {}) {
     if (this.winner !== null) return;
     dt = Math.min(dt, .05); this.time += dt;
+    const starts = this.players.map(p => ({ x: p.x, y: p.y }));
     for (const p of this.players) {
       p.cooldown = Math.max(0, p.cooldown - dt); p.shield = Math.max(0, p.shield - dt);
       if (p.hp <= 0) { p.dead -= dt; if (p.dead <= 0) this.respawn(p); continue; }
@@ -166,12 +177,12 @@ export class Arena {
         const dx = owner.x - h.x, dy = owner.y - h.y, d = Math.hypot(dx, dy), step = h.returnSpeed * dt;
         const ox = h.x, oy = h.y, travel = Math.min(d, step);
         h.x += dx / (d || 1) * travel; h.y += dy / (d || 1) * travel;
-        this.checkHit(h, ox, oy);
+        this.checkHit(h, ox, oy, starts);
         if (h.victim !== null) { const p = this.players[h.victim]; p.x = h.x; p.y = h.y; }
         if (d <= step) { this.release(h, owner); return false; }
       } else {
         const ox = h.x, oy = h.y, step = Math.min(h.speed * dt, h.range - h.distance);
-        h.x += h.dx * step; h.y += h.dy * step; h.distance += step; this.checkHit(h, ox, oy);
+        h.x += h.dx * step; h.y += h.dy * step; h.distance += step; this.checkHit(h, ox, oy, starts);
         if (h.distance >= h.range || h.x < 20 || h.x > W - 20 || h.y < 25 || h.y > H - 35) h.returning = true;
       }
       return true;
