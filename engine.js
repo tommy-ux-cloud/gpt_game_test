@@ -1,5 +1,5 @@
-export const W = 1800, H = 1100, COOLDOWN = 2.4, TARGET = 8, HOOK_RANGE = 820;
-export const RIVER = { top: 490, bottom: 620 };
+export const W = 3600, H = 2250, COOLDOWN = 2.4, TARGET = 8, HOOK_RANGE = 820;
+export const RIVER = { top: 1050, bottom: 1200 };
 const clamp = (n, a, b) => Math.max(a, Math.min(b, n));
 export function segmentHit(ax, ay, bx, by, x, y, radius) {
   const dx = bx - ax, dy = by - ay;
@@ -10,10 +10,10 @@ export class Arena {
   constructor(random = Math.random) {
     this.random = random; this.time = 0; this.hooks = []; this.events = []; this.winner = null;
     this.players = [
-      { name: '你', color: '#d6ed90', x: W * .3, y: RIVER.bottom + 150 },
-      { name: '赤牙', color: '#ed9981', x: W * .3, y: RIVER.top - 150 },
-      { name: '幽潮', color: '#8cbfc9', x: W * .7, y: RIVER.top - 150 },
-      { name: '鐵顎', color: '#c6a0d5', x: W * .7, y: RIVER.bottom + 150 },
+      { name: '你', color: '#d6ed90', x: W * .38, y: RIVER.bottom + 90 },
+      { name: '赤牙', color: '#ed9981', x: W * .38, y: RIVER.top - 90 },
+      { name: '幽潮', color: '#8cbfc9', x: W * .62, y: RIVER.top - 90 },
+      { name: '鐵顎', color: '#c6a0d5', x: W * .62, y: RIVER.bottom + 90 },
     ].map((p, id) => ({ ...p, id, hp: 100, kills: 0, deaths: 0, cooldown: 0, dead: 0, shield: 1.5, angle: -Math.PI / 2, vx: 0, vy: 0, aiTimer: 1 + id * .7, phase: id * 1.8, pull: null, moveTarget: null }));
   }
   moveTo(id, x, y) {
@@ -74,7 +74,7 @@ export class Arena {
       if (p.hp <= 0) {
         p.dead -= dt;
         if (p.dead <= 0) {
-          p.hp = 100; p.x = W * (.15 + this.random() * .7); p.y = p.id % 2 ? RIVER.top - 150 : RIVER.bottom + 150; p.shield = 2; p.cooldown = .6;
+          p.hp = 100; p.x = W * (.15 + this.random() * .7); p.y = p.id % 2 ? RIVER.top - 90 : RIVER.bottom + 90; p.shield = 2; p.cooldown = .6;
           this.events.push({ type: 'spawn', x: p.x, y: p.y, color: p.color });
         }
         continue;

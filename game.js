@@ -1,9 +1,15 @@
 import { Arena, W, H, COOLDOWN, RIVER, HOOK_RANGE } from './engine.js';
+import { Camera, VIEW_W, VIEW_H } from './camera.js';
 
 const $ = id => document.getElementById(id);
 const canvas = $('arena'), ctx = canvas.getContext('2d');
-canvas.width = W; canvas.height = H;
+canvas.width = VIEW_W; canvas.height = VIEW_H;
+const camera = new Camera(), cameraKeys = new Set();
+const mouse = { u: .5, v: .5, inside: false };
+const minimap = $('minimap'), mini = minimap.getContext('2d');
+let following = true, miniDragging = false;
 let game = new Arena(), state = 'menu', aim = { x: W / 2, y: RIVER.top - 150 }, particles = [], numbers = [], sound = false, audio;
+camera.centerOn(game.players[0]);
 let seed = 81;
 const rand = () => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; };
 const floor = document.createElement('canvas'); floor.width = W; floor.height = H;
@@ -51,7 +57,7 @@ function events() {
   for (const e of game.events.splice(0)) {
     if (e.type === 'fire') tone(230, .12, 'triangle');
     if (e.type === 'hit') { burst(e.x, e.y, e.color); numbers.push({ x: e.x, y: e.y - 35, life: .9, text: '−55' }); tone(100, .2, 'sawtooth', .025); }
-    if (e.type === 'spawn') burst(e.x, e.y, e.color, 30);
+    if (e.type === 'spawn') { burst(e.x, e.y, e.color, 30); if (following) camera.centerOn(game.players[0]); }
     if (e.type === 'kill') {
       burst(e.x, e.y, e.color, 45); tone(440, .3, 'triangle');
       const div = document.createElement('div');
@@ -67,7 +73,9 @@ function events() {
 }
 function circle(x, y, r, color) { ctx.fillStyle = color; ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill(); }
 function draw(t) {
-  ctx.clearRect(0, 0, W, H); ctx.drawImage(floor, 0, 0);
+  ctx.clearRect(0, 0, VIEW_W, VIEW_H);
+  ctx.save(); ctx.translate(-camera.x, -camera.y);
+  ctx.drawImage(floor, camera.x, camera.y, VIEW_W, VIEW_H, camera.x, camera.y, VIEW_W, VIEW_H);
   ctx.save(); ctx.beginPath(); ctx.rect(0, RIVER.top + 6, W, RIVER.bottom - RIVER.top - 7); ctx.clip();
   for (let i = 0; i < 40; i++) {
     const x = (i * 67 + t * (12 + i % 4)) % (W + 120) - 60, y = RIVER.top + 15 + (i * 29) % (RIVER.bottom - RIVER.top - 20);
@@ -121,11 +129,35 @@ function draw(t) {
   }
   for (const p of particles) { ctx.globalAlpha = Math.max(0, p.life); circle(p.x, p.y, 2.5, p.color); } ctx.globalAlpha = 1;
   for (const n of numbers) { ctx.globalAlpha = Math.min(1, n.life * 2); ctx.fillStyle = '#f2d1a4'; ctx.font = 'bold 22px monospace'; ctx.textAlign = 'center'; ctx.fillText(n.text, n.x, n.y); } ctx.globalAlpha = 1;
-  // Soft edge vignette keeps the action in focus.
-  const vignette = ctx.createRadialGradient(W / 2, H / 2, W * .22, W / 2, H / 2, W * .65); vignette.addColorStop(0, '#06100900'); vignette.addColorStop(1, '#061009aa'); ctx.fillStyle = vignette; ctx.fillRect(0, 0, W, H);
+  ctx.restore();
+  // HUD shading is fixed to the viewport, separate from world coordinates.
+  const vignette = ctx.createRadialGradient(VIEW_W / 2, VIEW_H / 2, VIEW_W * .22, VIEW_W / 2, VIEW_H / 2, VIEW_W * .65); vignette.addColorStop(0, '#06100900'); vignette.addColorStop(1, '#061009aa'); ctx.fillStyle = vignette; ctx.fillRect(0, 0, VIEW_W, VIEW_H);
   if (game.players[0].hp <= 0 && state === 'playing') {
-    ctx.fillStyle = '#101b14cc'; ctx.fillRect(W / 2 - 210, H / 2 - 120, 420, 85); ctx.textAlign = 'center'; ctx.font = 'bold 23px Arial'; ctx.fillStyle = '#d6ed90'; ctx.fillText(`重新集結 · ${Math.ceil(game.players[0].dead)} 秒後重生`, W / 2, H / 2 - 70);
+    ctx.fillStyle = '#101b14cc'; ctx.fillRect(VIEW_W / 2 - 210, VIEW_H / 2 - 120, 420, 85); ctx.textAlign = 'center'; ctx.font = 'bold 23px Arial'; ctx.fillStyle = '#d6ed90'; ctx.fillText(`重新集結 · ${Math.ceil(game.players[0].dead)} 秒後重生`, VIEW_W / 2, VIEW_H / 2 - 70);
   }
+}
+function drawMinimap() {
+  const mw = minimap.width, mh = minimap.height;
+  mini.drawImage(floor, 0, 0, mw, mh);
+  for (const p of game.players) {
+    if (p.hp <= 0) continue;
+    mini.fillStyle = p.color; mini.beginPath(); mini.arc(p.x / W * mw, p.y / H * mh, p.id === 0 ? 4 : 3, 0, Math.PI * 2); mini.fill();
+  }
+  mini.fillStyle = '#d6ed9020'; mini.strokeStyle = '#e2f5aa'; mini.lineWidth = 1.5;
+  mini.fillRect(camera.x / W * mw, camera.y / H * mh, VIEW_W / W * mw, VIEW_H / H * mh);
+  mini.strokeRect(camera.x / W * mw, camera.y / H * mh, VIEW_W / W * mw, VIEW_H / H * mh);
+  $('camera-mode').textContent = following ? '跟隨角色' : '自由鏡頭 · 空白鍵回到角色';
+}
+function updateCamera(dt) {
+  let dx = Number(cameraKeys.has('ArrowRight')) - Number(cameraKeys.has('ArrowLeft'));
+  let dy = Number(cameraKeys.has('ArrowDown')) - Number(cameraKeys.has('ArrowUp'));
+  if (mouse.inside && !miniDragging) {
+    dx += mouse.u < .025 ? -1 : mouse.u > .975 ? 1 : 0;
+    dy += mouse.v < .035 ? -1 : mouse.v > .965 ? 1 : 0;
+  }
+  if (dx || dy) { following = false; camera.pan(dx * 650 * dt, dy * 650 * dt); }
+  else if (following) camera.centerOn(game.players[0]);
+  aim = camera.screenToWorld(mouse.u, mouse.v);
 }
 let scoreCache = '';
 function hud() {
@@ -140,15 +172,15 @@ function hud() {
 }
 function showOverlay(title, description, button) {
   $('overlay-title').textContent = title; $('overlay-description').textContent = description; $('play-button').innerHTML = `${button} <span>→</span>`; $('overlay').hidden = false;
-  $('overlay-hint').textContent = state === 'paused' ? 'Esc / P 繼續遊戲' : '右鍵移動 · 滑鼠瞄準 · Q 出鉤 · S 停止';
+  $('overlay-hint').textContent = state === 'paused' ? 'Esc / P 繼續遊戲' : '右鍵移動 · Q 出鉤 · 空白鍵回到角色';
 }
 function pause() {
-  if (state === 'playing') { state = 'paused'; showOverlay('稍作喘息。', '鎖鏈已收好。準備好了，就再度進場。', '繼續對戰'); }
+  if (state === 'playing') { state = 'paused'; cameraKeys.clear(); mouse.inside = false; showOverlay('稍作喘息。', '鎖鏈已收好。準備好了，就再度進場。', '繼續對戰'); }
   else if (state === 'paused' && !$('help').open) { state = 'playing'; $('overlay').hidden = true; canvas.focus(); }
   $('pause-button').textContent = state === 'paused' ? '▶' : 'Ⅱ';
 }
 $('play-button').onclick = () => {
-  if (state !== 'paused') { game = new Arena(); particles = []; numbers = []; $('feed').replaceChildren(); scoreCache = ''; }
+  if (state !== 'paused') { game = new Arena(); particles = []; numbers = []; $('feed').replaceChildren(); scoreCache = ''; following = true; camera.centerOn(game.players[0]); }
   state = 'playing'; $('overlay').hidden = true; $('pause-button').textContent = 'Ⅱ'; canvas.focus();
 };
 $('pause-button').onclick = pause;
@@ -168,27 +200,51 @@ window.addEventListener('keydown', e => {
   if ($('help').open) return;
   if (e.code === 'Escape' || e.code === 'KeyP') { if (!e.repeat) pause(); return; }
   if (state !== 'playing' || e.target instanceof HTMLButtonElement) return;
-  if (e.code === 'KeyQ') { e.preventDefault(); if (!e.repeat) game.fire(0, aim.x, aim.y); }
+  if (e.code.startsWith('Arrow')) { e.preventDefault(); cameraKeys.add(e.code); }
+  if (e.code === 'Space') { e.preventDefault(); following = true; mouse.inside = false; cameraKeys.clear(); camera.centerOn(game.players[0]); }
+  if (e.code === 'KeyQ') { e.preventDefault(); aim = camera.screenToWorld(mouse.u, mouse.v); if (!e.repeat) game.fire(0, aim.x, aim.y); }
   if (e.code === 'KeyS') { e.preventDefault(); game.stopMove(0); }
 });
-window.addEventListener('blur', () => { if (state === 'playing') pause(); });
+window.addEventListener('keyup', e => cameraKeys.delete(e.code));
+window.addEventListener('blur', () => { cameraKeys.clear(); mouse.inside = false; if (state === 'playing') pause(); });
 document.addEventListener('visibilitychange', () => { if (document.hidden && state === 'playing') pause(); });
-function pointer(e) { const rect = canvas.getBoundingClientRect(); aim = { x: (e.clientX - rect.left) / rect.width * W, y: (e.clientY - rect.top) / rect.height * H }; }
+function pointer(e) {
+  const rect = canvas.getBoundingClientRect();
+  mouse.u = (e.clientX - rect.left) / rect.width; mouse.v = (e.clientY - rect.top) / rect.height; mouse.inside = true;
+  aim = camera.screenToWorld(mouse.u, mouse.v);
+}
 canvas.addEventListener('pointermove', pointer);
+canvas.addEventListener('pointerleave', () => { mouse.inside = false; });
 canvas.addEventListener('pointerdown', e => {
   if (state !== 'playing') return;
   pointer(e); canvas.focus();
   if (e.button === 2) { e.preventDefault(); game.moveTo(0, aim.x, aim.y); }
 });
 canvas.addEventListener('contextmenu', e => e.preventDefault());
+function minimapPointer(e) {
+  const rect = minimap.getBoundingClientRect();
+  following = false; mouse.inside = false;
+  camera.centerOn(camera.minimapToWorld((e.clientX - rect.left) / rect.width, (e.clientY - rect.top) / rect.height));
+  aim = camera.screenToWorld(mouse.u, mouse.v);
+}
+minimap.addEventListener('pointerdown', e => {
+  if (state !== 'playing' || e.button !== 0) return;
+  e.preventDefault(); miniDragging = true; minimap.setPointerCapture(e.pointerId); minimapPointer(e); canvas.focus();
+});
+minimap.addEventListener('pointermove', e => { if (miniDragging && state === 'playing') minimapPointer(e); });
+minimap.addEventListener('lostpointercapture', () => { miniDragging = false; });
+minimap.addEventListener('pointerup', e => { miniDragging = false; if (minimap.hasPointerCapture(e.pointerId)) minimap.releasePointerCapture(e.pointerId); });
+minimap.addEventListener('contextmenu', e => e.preventDefault());
 let last = performance.now();
 function frame(now) {
   const dt = Math.min((now - last) / 1000, .05); last = now;
   if (state === 'playing') {
-    game.tick(dt, { aim }); events();
+    updateCamera(dt); game.tick(dt, { aim }); events();
+    if (following) camera.centerOn(game.players[0]);
+    aim = camera.screenToWorld(mouse.u, mouse.v);
     particles = particles.filter(p => { p.x += p.vx * dt; p.y += p.vy * dt; p.life -= dt; return p.life > 0; });
     numbers = numbers.filter(n => { n.y -= dt * 30; n.life -= dt; return n.life > 0; });
   }
-  draw(game.time); hud(); requestAnimationFrame(frame);
+  draw(game.time); drawMinimap(); hud(); requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
