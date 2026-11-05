@@ -10,8 +10,8 @@
 <body>
   <header class="topbar">
     <a class="brand" href="./" aria-label="鉤魂競技場首頁"><span class="brand-icon">↪</span> HOOK<span>ARENA</span><small>鉤魂競技場</small></a>
-    <nav><span class="active">競技場</span><button id="help-button">遊戲說明 <span>↗</span></button></nav>
-    <span class="build"><i></i> 單人練習 · v0.10</span>
+    <nav><span class="active">競技場</span><button id="character-button">角色展示</button><button id="help-button">遊戲說明 <span>↗</span></button></nav>
+    <span class="build"><i></i> 單人練習 · v0.11</span>
   </header>
   <main>
     <section class="heading"><div><div class="eyebrow">THE PIT IS WAITING</div><h1>一鉤，定勝負<span>。</span></h1><p>預判走位，甩出鎖鏈。把勝利拉到你面前。</p></div><div class="mode"><span class="mode-icon">⌖</span><div><strong>訓練競技場</strong><small id="mode-description">5 對 5 · 率先 30 擊殺</small></div></div></section>
@@ -20,7 +20,7 @@
         <div class="arena-bar"><span><i></i> THE SUNKEN YARD <small>沉沒庭院</small></span><div><strong id="team-score" aria-label="隊伍比分">0 : 0</strong><span id="timer">00:00</span><span id="gold-text">0 金錢</span><button id="training-reset" hidden>R 重置靶人</button><button id="shop-button">B 商店</button><button id="fullscreen-button" aria-pressed="false">放大競技場</button><button id="pause-button" aria-label="暫停遊戲">Ⅱ</button><button id="sound-button" aria-label="開啟音效">音效 關</button></div></div>
         <div class="canvas-wrap" id="canvas-wrap">
           <canvas id="arena" width="1200" height="750" aria-label="鉤魂競技場：使用滑鼠右鍵點地移動，滑鼠瞄準，按 Q 出鉤，S 停止移動" tabindex="0"></canvas>
-          <div class="camera-caption"><strong>MOBA 斜俯視 · 全圖 1/9</strong><span id="camera-mode">固定跟隨 · 55° 高位斜俯視</span></div>
+          <div class="camera-caption"><strong>粉紅豬 · 紅藍鉤頭 · 全圖 1/9</strong><span id="camera-mode">固定跟隨 · 55° 高位斜俯視</span></div>
           <div id="streak-text" class="streak-hud">本條命首殺 $1</div>
           <div id="feed" class="feed" aria-live="polite"></div>
           <div id="overlay" class="overlay"><div class="overlay-card"><div class="seal">↪</div><div class="eyebrow">WELCOME TO THE PIT</div><h2 id="overlay-title">獵物，還是獵人？</h2><p id="overlay-description">掌握鎖鏈的距離，讓每一鉤都有意義。<br>集結 5–8 人小隊，守住左側、鉤倒對岸。<br>首殺 $1 · 第二殺起每殺 $2 · 升級每次 $1。</p><div id="match-settings" class="match-settings"><label for="game-mode">遊戲模式 <select id="game-mode"><option value="team">隊伍對戰</option><option value="dummy">靶場練習 · 固定靶人</option></select></label><div id="team-settings"><label for="team-size">隊伍人數 <select id="team-size"><option value="5">5 對 5</option><option value="6">6 對 6</option><option value="7">7 對 7</option><option value="8">8 對 8</option></select></label><label for="kill-target">隊伍勝利擊殺數 <input id="kill-target" type="number" min="1" max="9999" step="1" value="30" required></label><label class="endless-option"><input id="endless-mode" type="checkbox"> 無限對戰，不設擊殺上限</label></div><p id="practice-note" hidden>只有你與一位固定靶人。<br>100 萬生命、每秒回血 10 萬，不攻擊。<br>可被拉回，拉完自動歸位；R 可重置靶人與出鉤冷卻。</p></div><button id="play-button" class="primary">進入競技場 <span>→</span></button><button id="reset-button" class="reset-match" hidden>重新設定對局</button><small id="overlay-hint">右鍵移動 · Q 出鉤 · B 商店 · S 停止</small></div></div>
@@ -44,9 +44,17 @@
     <p id="shop-status" role="status"></p><button id="shop-travel" class="travel">前往本側商人 →</button>
     <div id="shop-items"></div><p class="shop-note">本條命首殺 $1，第二殺起每殺 $2 · 終結獎金＝對手連殺數<br>全部升級每次 1 金錢 · 死亡保留金錢與升級<br>購物期間戰鬥仍持續；商人無敵、無隊伍，不會被鉤中。</p>
   </dialog>
+  <dialog id="character-viewer" aria-labelledby="character-title"><button id="close-character" class="close" aria-label="關閉角色展示">×</button>
+    <div class="eyebrow">CHARACTER WORKSHOP / 01</div><h2 id="character-title">沉沒庭院的鉤手</h2>
+    <p class="character-intro">粉紅豬 · 黑衣與藍短褲 · 舊鐵護甲</p>
+    <canvas id="character-canvas" width="700" height="560" aria-label="粉紅豬 3D 角色，可拖曳旋轉查看"></canvas>
+    <div class="character-teams"><button data-preview-team="0" aria-pressed="true">藍隊鉤頭</button><button data-preview-team="1" aria-pressed="false">紅隊鉤頭</button></div>
+    <p id="character-viewer-note">拖曳角色可旋轉查看 · 第一版 3D 造型</p>
+  </dialog>
   <dialog id="help"><button id="close-help" class="close" aria-label="關閉說明">×</button><div class="eyebrow">FIELD MANUAL</div><h2>讓每一鉤都有意義。</h2>
+    <p>粉紅豬角色使用 3D 網格、護甲材質與基本動作。藍鉤隊使用藍色鉤頭，赤鉤隊使用紅色鉤頭；可從頁首「角色展示」近看並旋轉角色。</p>
     <p>滑鼠右鍵點地移動，Q 朝游標出鉤（瞄準角色身體），S 停止，Esc / P 暫停。鏡頭固定跟隨你的角色，只顯示全圖約 1/9；小地圖僅提供全圖資訊。</p>
-    <p>開局可選 5v5、6v6、7v7 或 8v8，預設 5v5。你與隊友屬於左側翠葉隊，對手屬於右側赤牙隊；其餘 9–15 位角色由 AI 控制。中央直向河道不可步行，鉤子可以穿越；被拉過河後可在當地半場活動。重生只會出現在自己的隊伍半場。</p>
+    <p>開局可選 5v5、6v6、7v7 或 8v8，預設 5v5。你與隊友屬於左側藍鉤隊，對手屬於右側赤鉤隊；其餘 9–15 位角色由 AI 控制。中央直向河道不可步行，鉤子可以穿越；被拉過河後可在當地半場活動。重生只會出現在自己的隊伍半場。</p>
     <p>空鉤出去和回收途中都能命中；每次出鉤最多命中一人；鉤子回到身上後才開始冷卻。命中敵人造成基礎 55 傷害（可升級）並拉回，鉤中隊友只救援、不造成傷害。開局可自訂隊伍勝利擊殺數（預設 30），或選擇無限對戰。另有「靶場練習」模式，只有你與一位不移動、不攻擊的固定靶人，生命 100 萬、每秒回血 10 萬；被拉完會自動歸位，R 可重置靶人及出鉤冷卻。暫停後可重新設定並開始新局。</p>
     <p>每條命首殺獲得 $1，第二殺起每殺 $2，死亡後連殺歸零。終結至少兩連殺的敵人，另外獲得等同對手連殺數的獎金（例如終結三連殺另加 $3）。左右外側邊線中央各有一位中立商人；兩隊都能使用，商人無敵且不會被鉤中。按 B 檢視商店或點擊商人，靠近商人才能購買。每次升級花費 1 金錢，死亡保留升級與金錢，重開對局才歸零。</p>
     <p>基礎每秒回復 0.5 生命。八種升級均小幅累加：最大生命 +5、每秒回血 +0.1、移速 +3、鉤頭半徑 +0.75、冷卻縮短 3%（最低 0.8 秒）、鉤速 +25、鉤長 +25、鉤子傷害 +2。</p>

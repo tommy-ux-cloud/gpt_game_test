@@ -1,5 +1,6 @@
 import { Arena, W, H, RIVER, UPGRADES, upgradeValue, SHOP_RANGE } from './engine.js';
 import { Camera, VIEW_W, VIEW_H, PROJECTION, HOOK_HEIGHT } from './camera.js';
+import { Arena3D, createPigPreview } from './arena3d.js';
 
 const $ = id => document.getElementById(id);
 const canvas = $('arena'), ctx = canvas.getContext('2d');
@@ -47,6 +48,9 @@ for (let i = 0; i < 160; i++) {
   f.beginPath(); f.ellipse(x, y, rand() * 17 + 4, rand() * 9 + 3, rand() * 3, 0, 7); f.fill();
 }
 
+let world3d = null;
+try { world3d = new Arena3D(canvas, floor); } catch (error) { console.warn('3D renderer unavailable; using Canvas fallback.', error.message); }
+
 function tone(freq, duration = .08, type = 'sine', volume = .035) {
   if (!sound || !audio) return;
   const o = audio.createOscillator(), g = audio.createGain(); o.connect(g); g.connect(audio.destination);
@@ -82,7 +86,11 @@ function standAt(x, y) {
   const screen = camera.worldToScreen({ x, y });
   ctx.save(); ctx.setTransform(1, 0, 0, 1, screen.x, screen.y);
 }
-function drawMerchant(merchant) {
+function drawMerchant(merchant, rendered3d = false) {
+  if (rendered3d) {
+    standAt(merchant.x, merchant.y); ctx.textAlign = 'center'; ctx.font = 'bold 12px Arial'; ctx.fillStyle = '#f1d895';
+    ctx.fillText(merchant.name, 0, -93); ctx.font = '10px Arial'; ctx.fillText('中立 · 無敵 · B 購買', 0, 32); ctx.restore(); return;
+  }
   standAt(merchant.x, merchant.y);
   ctx.fillStyle = '#0007'; ctx.beginPath(); ctx.ellipse(5, 7, 55, 18, 0, 0, Math.PI * 2); ctx.fill();
   ctx.fillStyle = '#5d432a'; ctx.fillRect(-34, -66, 6, 69); ctx.fillRect(30, -66, 6, 69);
@@ -96,45 +104,44 @@ function drawMerchant(merchant) {
   ctx.font = 'bold 13px Arial'; ctx.textAlign = 'center'; ctx.fillStyle = '#f1d895'; ctx.fillText(merchant.name, 0, -110);
   ctx.font = '10px Arial'; ctx.fillText('中立 · 無敵 · B 購買', 0, 36); ctx.restore();
 }
-function drawPlayer(p, t) {
-  const bob = Math.sin(t * 9 + p.id) * (Math.hypot(p.vx, p.vy) > 5 ? 2 : .4);
+function drawPlayer(p, t, rendered3d = false) {
   standAt(p.x, p.y);
-  ctx.fillStyle = '#0007'; ctx.beginPath(); ctx.ellipse(4, 6, 28, 11, -.12, 0, Math.PI * 2); ctx.fill();
-  if (p.id === 0) { ctx.strokeStyle = '#d6ed9077'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.ellipse(0, 4, 32, 13, 0, 0, Math.PI * 2); ctx.stroke(); }
-  if (p.shield > 0) { ctx.strokeStyle = `${p.color}77`; ctx.beginPath(); ctx.ellipse(0, -37, 40, 58, 0, 0, Math.PI * 2); ctx.stroke(); }
-  ctx.translate(0, bob);
-  ctx.fillStyle = '#0d1712'; ctx.beginPath(); ctx.moveTo(-20, -45); ctx.lineTo(-29, -5); ctx.lineTo(0, 5); ctx.lineTo(29, -5); ctx.lineTo(20, -45); ctx.closePath(); ctx.fill();
-  ctx.fillStyle = '#1c2920'; ctx.fillRect(-17, -12, 13, 16); ctx.fillRect(5, -12, 13, 16);
-  ctx.fillStyle = '#657348'; ctx.fillRect(-17, 0, 13, 4); ctx.fillRect(5, 0, 13, 4);
-  ctx.fillStyle = '#26372b'; ctx.beginPath(); ctx.roundRect(-20, -48, 40, 39, 11); ctx.fill();
-  ctx.fillStyle = p.color; ctx.globalAlpha = .4; ctx.beginPath(); ctx.roundRect(-16, -46, 18, 31, 7); ctx.fill(); ctx.globalAlpha = 1;
-  circle(-22, -43, 11, '#142119'); circle(22, -43, 11, '#142119');
-  circle(-22, -46, 10, p.color); circle(22, -46, 10, p.color);
-  ctx.fillStyle = '#101b14'; ctx.fillRect(-20, -17, 40, 6); ctx.fillStyle = '#c6b27a'; ctx.fillRect(-3, -17, 7, 6);
-  circle(0, -65, 16, '#142119'); circle(Math.cos(p.angle) * 3, -63, 11, '#b7b389');
-  ctx.fillStyle = '#283c2b'; ctx.beginPath(); ctx.moveTo(-15, -68); ctx.lineTo(-3, -86); ctx.lineTo(15, -68); ctx.lineTo(7, -72); ctx.lineTo(-7, -72); ctx.closePath(); ctx.fill();
-  ctx.fillStyle = '#182319'; ctx.fillRect(-10, -60, 20, 7); ctx.fillStyle = '#e8f4be'; ctx.fillRect(-7 + Math.cos(p.angle) * 3, -67, 4, 2); ctx.fillRect(3 + Math.cos(p.angle) * 3, -67, 4, 2);
-  const handX = Math.cos(p.angle) >= 0 ? 30 : -30;
-  circle(handX, -29, 7, '#111b14'); circle(handX - 1, -31, 5, '#b5b18c');
-  ctx.strokeStyle = '#c5cbb2'; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(handX, -28); ctx.lineTo(handX, -12); ctx.bezierCurveTo(handX, 1, handX + 14, 0, handX + 10, -10); ctx.stroke();
-  ctx.font = 'bold 12px Arial'; ctx.textAlign = 'center'; ctx.fillStyle = '#0b140c'; ctx.fillText(p.name + (p.id !== 0 && p.team === 0 ? ' · 隊友' : ''), 1, -109);
-  ctx.fillStyle = p.id === 0 ? '#e1f5a6' : '#d5deca'; ctx.fillText(p.name + (p.id !== 0 && p.team === 0 ? ' · 隊友' : ''), 0, -110);
-  ctx.fillStyle = '#111b17'; ctx.fillRect(-23, -101, 46, 5); ctx.fillStyle = p.color; ctx.fillRect(-22, -100, 44 * p.hp / p.maxHp, 3);
+  if (!rendered3d) {
+    // A readable pig fallback for browsers without WebGL.
+    ctx.fillStyle = '#0006'; ctx.beginPath(); ctx.ellipse(0, 4, 27, 10, 0, 0, 7); ctx.fill();
+    ctx.fillStyle = '#365578'; ctx.beginPath(); ctx.roundRect(-20, -25, 40, 20, 6); ctx.fill();
+    circle(-12, -3, 8, '#c8b7a2'); circle(12, -3, 8, '#c8b7a2');
+    ctx.fillStyle = '#282b2d'; ctx.beginPath(); ctx.ellipse(0, -38, 23, 25, 0, 0, 7); ctx.fill();
+    circle(-26, -37, 8, '#d99c9c'); circle(26, -37, 8, '#d99c9c');
+    circle(-18, -82, 10, '#e0a8a5'); circle(18, -82, 10, '#e0a8a5');
+    circle(0, -66, 24, '#e6b0ac'); circle(-10, -69, 3.5, '#193040'); circle(10, -69, 3.5, '#193040');
+    ctx.fillStyle = '#cf898c'; ctx.beginPath(); ctx.ellipse(0, -58, 11, 8, 0, 0, 7); ctx.fill();
+    circle(-4, -58, 2, '#633940'); circle(4, -58, 2, '#633940');
+    ctx.strokeStyle = p.color; ctx.lineWidth = 4; ctx.beginPath(); ctx.arc(32, -28, 10, -.8, 3.8); ctx.stroke();
+    if (p.id === 0 || p.shield > 0) { ctx.strokeStyle = p.color; ctx.lineWidth = 1; ctx.beginPath(); ctx.ellipse(0, 5, 31, 11, 0, 0, 7); ctx.stroke(); }
+  }
+  const name = p.name + (p.id !== 0 && p.team === 0 ? ' · 隊友' : '');
+  ctx.font = 'bold 12px Arial'; ctx.textAlign = 'center'; ctx.fillStyle = '#09101b'; ctx.fillText(name, 1, -103);
+  ctx.fillStyle = p.id === 0 ? '#c6e6ff' : '#e0e1df'; ctx.fillText(name, 0, -104);
+  ctx.fillStyle = '#111b17'; ctx.fillRect(-23, -96, 46, 5); ctx.fillStyle = p.color; ctx.fillRect(-22, -95, 44 * p.hp / p.maxHp, 3);
   ctx.restore();
 }
 function draw(t) {
+  const rendered3d = world3d?.render(game, camera) || false;
   ctx.clearRect(0, 0, VIEW_W, VIEW_H);
   ctx.save(); ctx.translate(VIEW_W / 2, VIEW_H / 2);
   ctx.transform(PROJECTION.a, 0, PROJECTION.c, PROJECTION.d, 0, 0);
   ctx.translate(-camera.x - VIEW_W / 2, -camera.y - VIEW_H / 2);
-  ctx.drawImage(floor, 0, 0);
-  ctx.save(); ctx.beginPath(); ctx.rect(RIVER.left + 6, 0, RIVER.right - RIVER.left - 7, H); ctx.clip();
-  for (let i = 0; i < 40; i++) {
-    const x = RIVER.left + 15 + (i * 29) % (RIVER.right - RIVER.left - 30), y = (i * 67 + t * (12 + i % 4)) % (H + 120) - 60;
-    ctx.strokeStyle = i % 3 ? '#71998a16' : '#a3c0a927'; ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.moveTo(x, y); ctx.bezierCurveTo(x - 3, y + 13, x + 3, y + 30, x, y + 46); ctx.stroke();
+  if (!rendered3d) {
+    ctx.drawImage(floor, 0, 0);
+    ctx.save(); ctx.beginPath(); ctx.rect(RIVER.left + 6, 0, RIVER.right - RIVER.left - 7, H); ctx.clip();
+    for (let i = 0; i < 40; i++) {
+      const x = RIVER.left + 15 + (i * 29) % (RIVER.right - RIVER.left - 30), y = (i * 67 + t * (12 + i % 4)) % (H + 120) - 60;
+      ctx.strokeStyle = i % 3 ? '#71998a16' : '#a3c0a927'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(x, y); ctx.bezierCurveTo(x - 3, y + 13, x + 3, y + 30, x, y + 46); ctx.stroke();
+    }
+    ctx.restore();
   }
-  ctx.restore();
   for (const merchant of game.merchants) {
     ctx.save(); ctx.translate(merchant.x, merchant.y);
     ctx.strokeStyle = '#dfc47c55'; ctx.lineWidth = 2; ctx.setLineDash([5, 8]);
@@ -156,7 +163,7 @@ function draw(t) {
     ctx.strokeStyle = '#d6ed9099'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(aim.x, aim.y, 11, 0, 7); ctx.stroke();
     ctx.beginPath(); ctx.moveTo(aim.x - 17, aim.y); ctx.lineTo(aim.x - 7, aim.y); ctx.moveTo(aim.x + 7, aim.y); ctx.lineTo(aim.x + 17, aim.y); ctx.moveTo(aim.x, aim.y - 17); ctx.lineTo(aim.x, aim.y - 7); ctx.stroke();
   }
-  for (const h of game.hooks) {
+  if (!rendered3d) for (const h of game.hooks) {
     const p = game.players[h.owner], angle = Math.atan2(h.y - p.y, h.x - p.x), d = Math.hypot(h.x - p.x, h.y - p.y);
     ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(angle);
     ctx.strokeStyle = '#111b15'; ctx.lineWidth = 5; ctx.beginPath(); ctx.moveTo(0, 2); ctx.lineTo(d, 2); ctx.stroke();
@@ -166,14 +173,14 @@ function draw(t) {
     ctx.save(); ctx.translate(h.x, h.y); ctx.rotate(Math.atan2(h.y - p.y, h.x - p.x));
     const r = h.radius;
     ctx.fillStyle = '#e3e4c921'; ctx.beginPath(); ctx.arc(0, 0, r, 0, Math.PI * 2); ctx.fill();
-    ctx.strokeStyle = '#edf0d5'; ctx.lineWidth = Math.max(1.5, r * .2); ctx.lineCap = 'round';
+    ctx.strokeStyle = p.color; ctx.lineWidth = Math.max(1.5, r * .2); ctx.lineCap = 'round';
     ctx.beginPath(); ctx.moveTo(-r * .75, -r * .25); ctx.lineTo(r * .3, -r * .25);
     ctx.bezierCurveTo(r * .95, -r * .25, r * .95, r * .7, r * .1, r * .7); ctx.lineTo(r * .1, r * .15); ctx.stroke(); ctx.restore();
   }
   ctx.restore();
   const actors = [
-    ...game.players.filter(p => p.hp > 0).map(p => ({ y: p.y, draw: () => drawPlayer(p, t) })),
-    ...game.merchants.map(m => ({ y: m.y, draw: () => drawMerchant(m) })),
+    ...game.players.filter(p => p.hp > 0).map(p => ({ y: p.y, draw: () => drawPlayer(p, t, rendered3d) })),
+    ...game.merchants.map(m => ({ y: m.y, draw: () => drawMerchant(m, rendered3d) })),
   ];
   actors.sort((a, b) => a.y - b.y).forEach(actor => actor.draw());
   for (const p of particles) { ctx.globalAlpha = Math.max(0, p.life); circle(p.x, p.y, 2.5, p.color); } ctx.globalAlpha = 1;
@@ -197,7 +204,7 @@ function drawMinimap() {
   const corners = camera.corners(); mini.beginPath();
   corners.forEach((p, i) => i ? mini.lineTo(p.x / W * mw, p.y / H * mh) : mini.moveTo(p.x / W * mw, p.y / H * mh));
   mini.closePath(); mini.fill(); mini.stroke();
-  $('camera-mode').textContent = '固定跟隨 · 55° 高位斜俯視';
+  $('camera-mode').textContent = world3d?.available ? '3D 角色 · 固定跟隨 · 55° 高位斜俯視' : '相容繪圖模式 · 固定跟隨 · 55° 高位斜俯視';
 }
 function updateCamera() {
   camera.centerOn(game.players[0]);
@@ -302,8 +309,28 @@ let helpPaused = false;
 $('help-button').onclick = () => { helpPaused = state === 'playing'; if (helpPaused) pause(); $('help').showModal(); };
 $('close-help').onclick = () => $('help').close();
 $('help').addEventListener('close', () => { if (helpPaused && state === 'paused') pause(); helpPaused = false; });
+let characterPreview = null, characterPaused = false;
+$('character-button').onclick = () => {
+  characterPaused = state === 'playing'; if (characterPaused) pause();
+  $('character-viewer').showModal();
+  $('character-viewer-note').textContent = '拖曳角色可旋轉查看 · 第一版 3D 造型';
+  for (const b of document.querySelectorAll('[data-preview-team]')) b.setAttribute('aria-pressed', String(b.dataset.previewTeam === '0'));
+  try { characterPreview = createPigPreview($('character-canvas')); }
+  catch { $('character-viewer-note').textContent = '此瀏覽器無法啟用 3D 預覽，可使用支援 WebGL 的桌面瀏覽器查看。'; }
+};
+$('close-character').onclick = () => $('character-viewer').close();
+$('character-viewer').addEventListener('close', () => {
+  characterPreview?.dispose(); characterPreview = null;
+  // A canvas with a lost/disposed WebGL context cannot be reused for the next preview.
+  const old = $('character-canvas'), fresh = old.cloneNode(false); old.replaceWith(fresh);
+  if (characterPaused && state === 'paused') pause(); characterPaused = false;
+});
+for (const button of document.querySelectorAll('[data-preview-team]')) button.onclick = () => {
+  const team = Number(button.dataset.previewTeam); characterPreview?.setTeam(team);
+  for (const b of document.querySelectorAll('[data-preview-team]')) b.setAttribute('aria-pressed', String(b === button));
+};
 window.addEventListener('keydown', e => {
-  if ($('help').open || $('shop').open) return;
+  if ($('help').open || $('shop').open || $('character-viewer').open) return;
   if (e.code === 'Escape' || e.code === 'KeyP') { if (!e.repeat) pause(); return; }
   if (state !== 'playing' || e.target instanceof HTMLButtonElement) return;
   if (e.code.startsWith('Arrow') || e.code === 'Space') e.preventDefault();

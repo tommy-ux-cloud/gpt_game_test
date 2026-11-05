@@ -38,7 +38,7 @@ export class Arena {
     this.teamSize = mode === 'dummy' ? 1 : teamSize;
     this.practice = { shots: 0, hits: 0, damage: 0 };
     this.random = random; this.time = 0; this.hooks = []; this.events = []; this.winner = null;
-    this.teams = [{ name: '翠葉隊', color: '#d6ed90', score: 0 }, { name: '赤牙隊', color: '#ed9981', score: 0 }];
+    this.teams = [{ name: '藍鉤隊', color: '#6bbdff', score: 0 }, { name: '赤鉤隊', color: '#ff777c', score: 0 }];
     this.merchants = [
       { id: 0, name: '西境商人', x: 90, y: H / 2, team: null, invulnerable: true, hookable: false },
       { id: 1, name: '東境商人', x: W - 90, y: H / 2, team: null, invulnerable: true, hookable: false },
