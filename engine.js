@@ -36,6 +36,7 @@ export class Arena {
     if (!Number.isInteger(teamSize) || teamSize < 5 || teamSize > 8) throw new RangeError('Team size must be between 5 and 8');
     this.mode = mode; this.targetKills = mode === 'dummy' ? null : targetKills;
     this.teamSize = mode === 'dummy' ? 1 : teamSize;
+    this.humans = new Set([0]); this.humanAims = new Map();
     this.practice = { shots: 0, hits: 0, damage: 0 };
     this.random = random; this.time = 0; this.hooks = []; this.events = []; this.winner = null;
     this.teams = [{ name: '藍鉤隊', color: '#6bbdff', score: 0 }, { name: '赤鉤隊', color: '#ff777c', score: 0 }];
@@ -175,13 +176,14 @@ export class Arena {
         if (p.resetAfter > 0) { p.resetAfter -= dt; if (p.resetAfter <= 0) { this.restoreDummy(p); starts[p.id] = { x: p.x, y: p.y }; } }
         this.stopMove(p.id); continue;
       }
-      if (p.id === 0) {
+      if (this.humans.has(p.id)) {
         if (p.moveTarget) {
           const dx = p.moveTarget.x - p.x, dy = p.moveTarget.y - p.y;
           if (Math.hypot(dx, dy) <= p.moveSpeed * dt) { p.x = p.moveTarget.x; p.y = p.moveTarget.y; this.stopMove(p.id); }
           else this.move(p, dx, dy, dt);
         } else p.vx = p.vy = 0;
-        if (input.aim) p.angle = Math.atan2(input.aim.y - p.y, input.aim.x - p.x);
+        const playerAim = p.id === 0 ? input.aim : this.humanAims.get(p.id);
+        if (playerAim) p.angle = Math.atan2(playerAim.y - p.y, playerAim.x - p.x);
       } else {
         const merchant = [...this.merchants].sort((a, b) => Math.hypot(p.x - a.x, p.y - a.y) - Math.hypot(p.x - b.x, p.y - b.y))[0];
         if (p.gold >= 1) {
