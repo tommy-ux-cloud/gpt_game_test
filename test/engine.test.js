@@ -5,8 +5,7 @@ import { Arena, segmentHit, segmentHitTime, RIVER, TARGET, W, H, SHOP_RANGE, UPG
 function isolated() {
   const g = new Arena(() => .5);
   for (const p of g.players) { p.shield = 0; p.aiTimer = 99999; p.regen = 0; }
-  g.players[2].hp = g.players[3].hp = 0;
-  g.players[2].dead = g.players[3].dead = 99999;
+  for (const p of g.players.slice(2)) { p.hp = 0; p.dead = 99999; }
   return g;
 }
 function advance(g, seconds) { for (let i = 0; i < Math.ceil(seconds * 60); i++) g.tick(1 / 60); }
@@ -38,8 +37,8 @@ test('swept hook collision catches between-frame targets', () => {
 });
 test('two balanced teams start on their respective left and right territories', () => {
   const g = new Arena();
-  assert.equal(g.players.filter(p => p.team === 0).length, 2);
-  assert.equal(g.players.filter(p => p.team === 1).length, 2);
+  assert.equal(g.players.filter(p => p.team === 0).length, 5);
+  assert.equal(g.players.filter(p => p.team === 1).length, 5);
   assert.ok(g.players.every(p => p.team === 0 ? p.x < RIVER.left : p.x > RIVER.right));
   assert.ok(g.players.every(p => p.gold === 0));
 });
@@ -414,10 +413,41 @@ test('cooldown upgrade is applied when the current hook finishes returning', () 
   for (let i = 0; i < 500 && g.hooks.length; i++) { assert.equal(p.cooldown, 0); g.tick(.01); }
   assert.equal(p.cooldown, 2.4 * .97);
 });
-test('normal matches and infinite team battles still have four active characters', () => {
-  for (const targetKills of [30, null]) {
-    const g = new Arena(() => .5, { targetKills });
-    assert.equal(g.mode, 'team'); assert.equal(g.players.length, 4); assert.equal(g.players.some(p => p.dummy), false);
+test('normal and infinite matches have the selected 5v5 through 8v8 roster', () => {
+  for (const targetKills of [30, null]) for (const teamSize of [5, 6, 7, 8]) {
+    const g = new Arena(() => .5, { targetKills, teamSize });
+    assert.equal(g.mode, 'team'); assert.equal(g.players.length, teamSize * 2); assert.equal(g.players.some(p => p.dummy), false);
   }
   assert.throws(() => new Arena(Math.random, { mode: 'invalid' }), RangeError);
+});
+
+test('each selectable team size has unique IDs, names and separated spawns on the correct side', () => {
+  for (const teamSize of [5, 6, 7, 8]) {
+    const g = new Arena(() => .5, { teamSize });
+    assert.equal(g.teamSize, teamSize); assert.equal(g.players.length, teamSize * 2);
+    assert.deepEqual(g.players.map(p => p.id), Array.from({ length: teamSize * 2 }, (_, id) => id));
+    assert.equal(new Set(g.players.map(p => p.name)).size, teamSize * 2);
+    for (const team of [0, 1]) assert.equal(g.players.filter(p => p.team === team).length, teamSize);
+    for (const p of g.players) {
+      assert.ok(p.team === 0 ? p.x < RIVER.left : p.x > RIVER.right);
+      assert.ok(p.y >= 55 && p.y <= H - 55);
+      for (const other of g.players) if (p.id !== other.id) assert.ok(Math.hypot(p.x - other.x, p.y - other.y) > 40);
+    }
+  }
+});
+test('invalid team sizes are rejected and fixed-dummy practice remains two characters', () => {
+  for (const teamSize of [0, 2, 4, 9, 16, 5.5, '8', NaN]) assert.throws(() => new Arena(Math.random, { teamSize }), RangeError);
+  const g = new Arena(() => .5, { mode: 'dummy', teamSize: 8 });
+  assert.equal(g.teamSize, 1); assert.equal(g.players.length, 2); assert.equal(g.players[1].dummy, true);
+});
+test('all 15 AI fighters participate in 8v8 and retain their team on respawn', () => {
+  let seed = 42; const random = () => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; };
+  const g = new Arena(random, { teamSize: 8, targetKills: null });
+  const starts = g.players.map(p => ({ x: p.x, y: p.y })); advance(g, 3);
+  for (const p of g.players.slice(1)) assert.ok(Math.hypot(p.x - starts[p.id].x, p.y - starts[p.id].y) > 1, p.name);
+  assert.ok(g.events.some(e => e.type === 'fire'));
+  for (const p of g.players) {
+    const team = p.team; g.respawn(p); assert.equal(p.team, team);
+    assert.ok(p.team === 0 ? p.x < RIVER.left : p.x > RIVER.right);
+  }
 });

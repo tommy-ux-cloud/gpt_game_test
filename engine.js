@@ -30,10 +30,12 @@ export function upgradeValue(p, key) {
   return key === 'hookCooldown' ? Math.max(.8, p.hookCooldown * .97) : p[key] + additions[key];
 }
 export class Arena {
-  constructor(random = Math.random, { targetKills = TARGET, mode = 'team' } = {}) {
+  constructor(random = Math.random, { targetKills = TARGET, mode = 'team', teamSize = 5 } = {}) {
     if (targetKills !== null && (!Number.isSafeInteger(targetKills) || targetKills < 1 || targetKills > 9999)) throw new RangeError('Kill target must be an integer between 1 and 9999, or null for practice');
     if (!['team', 'dummy'].includes(mode)) throw new RangeError('Unknown game mode');
+    if (!Number.isInteger(teamSize) || teamSize < 5 || teamSize > 8) throw new RangeError('Team size must be between 5 and 8');
     this.mode = mode; this.targetKills = mode === 'dummy' ? null : targetKills;
+    this.teamSize = mode === 'dummy' ? 1 : teamSize;
     this.practice = { shots: 0, hits: 0, damage: 0 };
     this.random = random; this.time = 0; this.hooks = []; this.events = []; this.winner = null;
     this.teams = [{ name: '翠葉隊', color: '#d6ed90', score: 0 }, { name: '赤牙隊', color: '#ed9981', score: 0 }];
@@ -41,17 +43,25 @@ export class Arena {
       { id: 0, name: '西境商人', x: 90, y: H / 2, team: null, invulnerable: true, hookable: false },
       { id: 1, name: '東境商人', x: W - 90, y: H / 2, team: null, invulnerable: true, hookable: false },
     ];
-    this.players = [
-      { name: '你', team: 0, x: RIVER.left - 130, y: H / 2 - 110 },
-      { name: '赤牙', team: 1, x: RIVER.right + 130, y: H / 2 - 110 },
-      { name: '幽潮', team: 1, x: RIVER.right + 130, y: H / 2 + 110 },
-      { name: '鐵顎', team: 0, x: RIVER.left - 130, y: H / 2 + 110 },
-    ].map((p, id) => ({ ...p, id, color: this.teams[p.team].color, hp: 100, maxHp: 100, regen: .5, moveSpeed: 185,
+    const names = [
+      ['你', '鐵顎', '岩盾', '蒼刃', '夜梟', '森牙', '霜角', '墨影'],
+      ['赤牙', '幽潮', '燼火', '裂爪', '荒狼', '銅骨', '血鷹', '冥刃'],
+    ];
+    const roster = [{ team: 0, slot: 0 }, { team: 1, slot: 0 }];
+    if (mode === 'team') {
+      // Preserve the original four IDs, then add balanced pairs of fighters.
+      roster.push({ team: 1, slot: 1 }, { team: 0, slot: 1 });
+      for (let slot = 2; slot < teamSize; slot++) roster.push({ team: 0, slot }, { team: 1, slot });
+    }
+    this.players = roster.map(({ team, slot }) => {
+      const row = slot === 0 ? 0 : Math.ceil(slot / 2) * (slot % 2 ? 1 : -1);
+      const inset = 130 + (slot % 2) * 90;
+      return { name: names[team][slot], team, x: team === 0 ? RIVER.left - inset : RIVER.right + inset, y: H / 2 + row * 160 };
+    }).map((p, id) => ({ ...p, id, color: this.teams[p.team].color, hp: 100, maxHp: 100, regen: .5, moveSpeed: 185,
       hookRadius: 8, hookCooldown: COOLDOWN, hookSpeed: HOOK_SPEED, hookRange: HOOK_RANGE, hookDamage: 55, gold: 0,
       levels: Object.fromEntries(UPGRADES.map(u => [u.key, 0])), kills: 0, streak: 0, deaths: 0, cooldown: 0, dead: 0,
-      shield: 1.5, angle: p.team ? Math.PI : 0, vx: 0, vy: 0, aiTimer: 1 + id * .7, phase: id * 1.8, pull: null, moveTarget: null }));
+      shield: 1.5, angle: p.team ? Math.PI : 0, vx: 0, vy: 0, aiTimer: 1 + (id % 4) * .45 + Math.floor(id / 4) * .12, phase: id * 1.8, pull: null, moveTarget: null }));
     if (mode === 'dummy') {
-      this.players = this.players.slice(0, 2);
       this.players[0].y = H / 2;
       const dummy = this.players[1];
       Object.assign(dummy, { dummy: true, name: '練習靶人', y: H / 2, maxHp: 1000000, hp: 1000000, regen: 100000, shield: 0, resetAfter: 0 });

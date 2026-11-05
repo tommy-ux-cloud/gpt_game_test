@@ -238,13 +238,17 @@ function hud() {
   $('training-reset').hidden = !training;
   $('gold-text').textContent = `${money(p.gold)} 金錢`;
   $('target-label').textContent = training ? '固定靶人 · 100 萬生命 · 每秒回血 10 萬' : game.targetKills === null ? '無限練習 · 不設擊殺上限' : `隊伍率先 ${game.targetKills} 擊殺獲勝`;
-  $('mode-description').textContent = training ? '靶場練習 · 1 位固定靶人' : game.targetKills === null ? '2 對 2 · 無限練習' : `2 對 2 · 率先 ${game.targetKills} 擊殺`;
+  $('mode-description').textContent = training ? '靶場練習 · 1 位固定靶人' : game.targetKills === null ? `${game.teamSize} 對 ${game.teamSize} · 無限對戰` : `${game.teamSize} 對 ${game.teamSize} · 率先 ${game.targetKills} 擊殺`;
   $('streak-text').textContent = training ? `出鉤 ${game.practice.shots} · 命中 ${game.practice.hits} · 累計傷害 ${game.practice.damage}` : p.streak >= 2 ? `${p.streak} 連殺 · 下次擊殺 $2` : p.streak === 1 ? '1 連殺 · 下次擊殺 $2' : '本條命首殺 $1';
   $('team-score').innerHTML = `<span>${game.teams[0].score}</span> : <span>${game.teams[1].score}</span>`;
   shopView();
   const score = game.players.map(p => `${p.kills},${p.deaths},${p.streak}`).join('|');
   if (score !== scoreCache) {
-    scoreCache = score; $('scores').innerHTML = [...game.players].sort((a, b) => a.team - b.team || a.id - b.id).map(p => `<div class="score-row" style="--player:${p.color}"><span class="avatar">${['↪', '♜', '◈', '♟'][p.id]}</span><span class="name">${p.name}${p.streak >= 2 ? `<b class="streak-badge">${p.streak} 連殺</b>` : ''}<em>${p.dummy ? '固定靶人' : p.team === 0 ? '翠葉隊' : '赤牙隊'}</em>${p.id === 0 ? '<small>YOU</small>' : ''}</span><span class="stats">${p.kills} <span>/ ${p.deaths}</span></span></div>`).join('');
+    scoreCache = score;
+    $('scores').innerHTML = game.teams.map((team, id) => {
+      const members = game.players.filter(p => p.team === id);
+      return `<div class="score-team-title" style="--team:${team.color}">${team.name}<span>${members.length} 人</span></div>` + members.map(p => `<div class="score-row" style="--player:${p.color}"><span class="avatar">${p.id === 0 ? '↪' : ['♜', '◈', '♟'][p.id % 3]}</span><span class="name">${p.name}${p.streak >= 2 ? `<b class="streak-badge">${p.streak} 連殺</b>` : ''}<em>${p.dummy ? '固定靶人' : p.id === 0 ? '玩家' : 'AI'}</em>${p.id === 0 ? '<small>YOU</small>' : ''}</span><span class="stats">${p.kills} <span>/ ${p.deaths}</span></span></div>`).join('');
+    }).join('');
   }
 }
 function showOverlay(title, description, button) {
@@ -263,7 +267,7 @@ $('play-button').onclick = () => {
     const input = $('kill-target');
     const mode = $('game-mode').value;
     if (mode === 'team' && !$('endless-mode').checked && !input.reportValidity()) return;
-    game = new Arena(Math.random, { mode, targetKills: mode === 'dummy' || $('endless-mode').checked ? null : input.valueAsNumber });
+    game = new Arena(Math.random, { mode, teamSize: Number($('team-size').value), targetKills: mode === 'dummy' || $('endless-mode').checked ? null : input.valueAsNumber });
     particles = []; numbers = []; $('feed').replaceChildren(); scoreCache = ''; shopIntent = null; camera.centerOn(game.players[0]);
   }
   state = 'playing'; $('overlay').hidden = true; $('pause-button').textContent = 'Ⅱ'; canvas.focus();
@@ -272,6 +276,7 @@ function modeSettings() {
   const training = $('game-mode').value === 'dummy';
   $('team-settings').hidden = training; $('practice-note').hidden = !training;
   $('endless-mode').disabled = training;
+  $('team-size').disabled = training;
   $('kill-target').disabled = training || $('endless-mode').checked;
 }
 $('game-mode').onchange = modeSettings;
