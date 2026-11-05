@@ -10,6 +10,10 @@ function isolated() {
   return g;
 }
 function advance(g, seconds) { for (let i = 0; i < Math.ceil(seconds * 60); i++) g.tick(1 / 60); }
+function finishHook(g) {
+  for (let i = 0; i < 600 && g.hooks.length; i++) g.tick(1 / 60);
+  assert.equal(g.hooks.length, 0, 'hook must finish its return within the test deadline');
+}
 function battle() {
   const g = isolated(); g.move = () => {};
   g.players[0].x = RIVER.left - 130; g.players[1].x = RIVER.right + 130;
@@ -61,7 +65,7 @@ test('outgoing hook crosses the vertical river, damages and pulls back onto the 
   const g = battle(), [owner, target] = g.players;
   target.moveTarget = { x: 3000, y: 1000 };
   assert.equal(g.fire(0, target.x, target.y), true); assert.equal(g.fire(0, target.x, target.y), false);
-  advance(g, 1); assert.equal(target.hp, 45); assert.equal(target.pull, null); assert.equal(target.moveTarget, null);
+  finishHook(g); assert.equal(target.hp, 45); assert.equal(target.pull, null); assert.equal(target.moveTarget, null);
   assert.ok(target.x < RIVER.left); assert.ok(target.x > owner.x, 'target lands on incoming hook side'); assert.equal(target.y, owner.y); assert.equal(g.hooks.length, 0);
 });
 test('empty returning hook catches an enemy stepping into the return path exactly once', () => {
@@ -73,14 +77,14 @@ test('empty returning hook catches an enemy stepping into the return path exactl
 test('return sweep includes its final step and respects spawn protection', () => {
   for (const protectedTarget of [false, true]) {
     const g = emptyReturning(), [owner, target] = g.players, h = g.hooks[0];
-    h.x = owner.x + 50; h.y = owner.y; target.x = owner.x + 25; target.y = owner.y;
+    h.x = owner.x + 35; h.y = owner.y; target.x = owner.x + 20; target.y = owner.y;
     if (protectedTarget) target.shield = 2;
     g.tick(.05); assert.equal(target.hp, protectedTarget ? 100 : 45); assert.equal(g.hooks.length, 0);
   }
 });
 test('allied hooks rescue without damage, kills, money or team score', () => {
   const g = battle(), [owner, target] = g.players; target.team = owner.team;
-  g.fire(0, target.x, target.y); advance(g, 1);
+  g.fire(0, target.x, target.y); finishHook(g);
   assert.equal(target.hp, 100); assert.equal(target.pull, null); assert.ok(target.x < RIVER.left);
   assert.equal(owner.gold, 0); assert.equal(owner.kills, 0); assert.equal(g.teams[0].score, 0);
 });
@@ -184,8 +188,8 @@ test('purchased hook range, speed and cooldown apply to the next cast', () => {
   for (const key of ['hookRange', 'hookSpeed', 'hookCooldown']) g.buy(0, key);
   p.x = 500; p.y = H / 2; g.players[1].y += 200;
   g.fire(0, 3000, p.y); assert.equal(p.cooldown, 0);
-  const h = g.hooks[0]; assert.equal(h.range, 845); assert.equal(h.speed, 875); assert.ok(h.returnSpeed > 1080);
-  const x = h.x; g.tick(.05); assert.equal(h.x - x, 875 * .05);
+  const h = g.hooks[0]; assert.equal(h.range, 845); assert.equal(h.speed, 675); assert.ok(h.returnSpeed > 650 * 1080 / 850);
+  const x = h.x; g.tick(.05); assert.equal(h.x - x, 675 * .05);
   for (let i = 0; i < 120 && !h.returning; i++) g.tick(1 / 60);
   assert.equal(h.distance, 845); assert.equal(h.returning, true);
 });

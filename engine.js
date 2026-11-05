@@ -1,4 +1,5 @@
 export const W = 3600, H = 2250, COOLDOWN = 2.4, TARGET = 30, HOOK_RANGE = 820;
+export const HOOK_SPEED = 650;
 export const RIVER = { left: 1710, right: 1890 };
 export const SHOP_RANGE = 230;
 export const UPGRADES = [
@@ -46,7 +47,7 @@ export class Arena {
       { name: '幽潮', team: 1, x: RIVER.right + 130, y: H / 2 + 110 },
       { name: '鐵顎', team: 0, x: RIVER.left - 130, y: H / 2 + 110 },
     ].map((p, id) => ({ ...p, id, color: this.teams[p.team].color, hp: 100, maxHp: 100, regen: .5, moveSpeed: 185,
-      hookRadius: 8, hookCooldown: COOLDOWN, hookSpeed: 850, hookRange: HOOK_RANGE, hookDamage: 55, gold: 0,
+      hookRadius: 8, hookCooldown: COOLDOWN, hookSpeed: HOOK_SPEED, hookRange: HOOK_RANGE, hookDamage: 55, gold: 0,
       levels: Object.fromEntries(UPGRADES.map(u => [u.key, 0])), kills: 0, streak: 0, deaths: 0, cooldown: 0, dead: 0,
       shield: 1.5, angle: p.team ? Math.PI : 0, vx: 0, vy: 0, aiTimer: 1 + id * .7, phase: id * 1.8, pull: null, moveTarget: null }));
     if (mode === 'dummy') {
