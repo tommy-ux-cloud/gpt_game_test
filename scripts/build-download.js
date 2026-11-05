@@ -4,18 +4,20 @@ import path from 'node:path';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const output = path.resolve(process.argv[2] || path.join(root, 'dist/Hook-Arena.html'));
-const [template, css, license] = await Promise.all(['index.html', 'style.css', 'vendor/THREE-LICENSE.txt'].map(name => readFile(path.join(root, name), 'utf8')));
+const [template, css] = await Promise.all(['index.html', 'style.css'].map(name => readFile(path.join(root, name), 'utf8')));
 const styleTag = '<link rel="stylesheet" href="style.css">';
 const scriptTag = '<script type="module" src="game.js"></script>';
 if (!template.includes(styleTag) || !template.includes(scriptTag)) throw new Error('Download template tags are missing');
-// Package the actual ES module graph rather than flattening globals. Three.js and
-// game modules retain their namespaces; Blob URLs work without HTTP or a CDN.
+// Bundle the module graph and the exact PNGs used by the live game. Blob modules
+// and embedded data images work without a server, CDN, WebGL or installation.
 const modules = {};
+const assets = {};
+for (const name of ['assets/pig-blue-atlas.png', 'assets/pig-red-atlas.png']) assets[name] = 'data:image/png;base64,' + (await readFile(path.join(root, name))).toString('base64');
 async function collect(name) {
   if (Object.hasOwn(modules, name)) return;
   const source = await readFile(path.join(root, name), 'utf8'); modules[name] = '';
   const dependencies = [];
-  modules[name] = source.replace(/\bfrom\s*(['"])(\.{1,2}\/[^'"]+)\1/g, (match, quote, relative) => {
+  modules[name] = source.replace(/(['"])(assets\/pig-(?:blue|red)-atlas\.png)\1/g, (_, quote, asset) => quote + assets[asset] + quote).replace(/\bfrom\s*(['"])(\.{1,2}\/[^'"]+)\1/g, (match, quote, relative) => {
     const dependency = path.posix.normalize(path.posix.join(path.posix.dirname(name), relative));
     if (dependency.startsWith('../')) throw new Error('Module outside game root');
     dependencies.push(dependency);
@@ -25,7 +27,7 @@ async function collect(name) {
 }
 await collect('game.js');
 const sources = JSON.stringify(modules).replace(/</g, '\\u003c');
-const bootstrap = `/* Three.js 0.160.1 — ${license} */\nconst sources=${sources};
+const bootstrap = `const sources=${sources};
 const urls=new Map();
 function moduleURL(name){
   if(urls.has(name))return urls.get(name);
@@ -35,8 +37,8 @@ function moduleURL(name){
 import(moduleURL('game.js')).catch(error=>{
   console.error(error);document.getElementById('overlay-description').textContent='遊戲未能啟動，請使用最新版桌面瀏覽器開啟。';
 });`;
-const html = template.replace(styleTag, `<style>\n${css}\n</style>`)
-  .replace(scriptTag, `<script type="module">\n${bootstrap}\n</script>`)
+const html = template.replace(styleTag, () => `<style>\n${css}\n</style>`)
+  .replace(scriptTag, () => `<script type="module">\n${bootstrap}\n</script>`)
   .replace('href="./" aria-label="鉤魂競技場首頁"', 'href="" aria-label="鉤魂競技場首頁"');
 await mkdir(path.dirname(output), { recursive: true });
 await writeFile(output, html);

@@ -1,6 +1,6 @@
 import { Arena, W, H, RIVER, UPGRADES, upgradeValue, SHOP_RANGE } from './engine.js';
 import { Camera, VIEW_W, VIEW_H, PROJECTION, HOOK_HEIGHT } from './camera.js';
-import { Arena3D, createPigPreview } from './arena3d.js';
+import { PigSprites, createSpritePreview, DIRECTIONS } from './pig-sprites.js';
 
 const $ = id => document.getElementById(id);
 const canvas = $('arena'), ctx = canvas.getContext('2d');
@@ -48,8 +48,14 @@ for (let i = 0; i < 160; i++) {
   f.beginPath(); f.ellipse(x, y, rand() * 17 + 4, rand() * 9 + 3, rand() * 3, 0, 7); f.fill();
 }
 
-let world3d = null;
-try { world3d = new Arena3D(canvas, floor); } catch (error) { console.warn('3D renderer unavailable; using Canvas fallback.', error.message); }
+const sprites = new PigSprites();
+const welcomeDescription = $('overlay-description').innerHTML;
+async function loadCharacters() {
+  $('play-button').disabled = true; $('character-button').disabled = true; $('play-button').textContent = '角色載入中…';
+  try { await sprites.load(); $('overlay-description').innerHTML = welcomeDescription; $('play-button').textContent = '進入競技場 →'; $('character-button').disabled = false; }
+  catch { $('overlay-description').textContent = '角色圖片載入失敗，請按下方按鈕重試。'; $('play-button').textContent = '重新載入角色'; }
+  $('play-button').disabled = false;
+}
 
 function tone(freq, duration = .08, type = 'sine', volume = .035) {
   if (!sound || !audio) return;
@@ -86,11 +92,7 @@ function standAt(x, y) {
   const screen = camera.worldToScreen({ x, y });
   ctx.save(); ctx.setTransform(1, 0, 0, 1, screen.x, screen.y);
 }
-function drawMerchant(merchant, rendered3d = false) {
-  if (rendered3d) {
-    standAt(merchant.x, merchant.y); ctx.textAlign = 'center'; ctx.font = 'bold 12px Arial'; ctx.fillStyle = '#f1d895';
-    ctx.fillText(merchant.name, 0, -93); ctx.font = '10px Arial'; ctx.fillText('中立 · 無敵 · B 購買', 0, 32); ctx.restore(); return;
-  }
+function drawMerchant(merchant) {
   standAt(merchant.x, merchant.y);
   ctx.fillStyle = '#0007'; ctx.beginPath(); ctx.ellipse(5, 7, 55, 18, 0, 0, Math.PI * 2); ctx.fill();
   ctx.fillStyle = '#5d432a'; ctx.fillRect(-34, -66, 6, 69); ctx.fillRect(30, -66, 6, 69);
@@ -104,44 +106,35 @@ function drawMerchant(merchant, rendered3d = false) {
   ctx.font = 'bold 13px Arial'; ctx.textAlign = 'center'; ctx.fillStyle = '#f1d895'; ctx.fillText(merchant.name, 0, -110);
   ctx.font = '10px Arial'; ctx.fillText('中立 · 無敵 · B 購買', 0, 36); ctx.restore();
 }
-function drawPlayer(p, t, rendered3d = false) {
+function drawPlayer(p, t) {
+  const screen = camera.worldToScreen(p);
+  if (screen.x < -100 || screen.x > VIEW_W + 100 || screen.y < -30 || screen.y > VIEW_H + 140) return;
   standAt(p.x, p.y);
-  if (!rendered3d) {
-    // A readable pig fallback for browsers without WebGL.
-    ctx.fillStyle = '#0006'; ctx.beginPath(); ctx.ellipse(0, 4, 27, 10, 0, 0, 7); ctx.fill();
-    ctx.fillStyle = '#365578'; ctx.beginPath(); ctx.roundRect(-20, -25, 40, 20, 6); ctx.fill();
-    circle(-12, -3, 8, '#c8b7a2'); circle(12, -3, 8, '#c8b7a2');
-    ctx.fillStyle = '#282b2d'; ctx.beginPath(); ctx.ellipse(0, -38, 23, 25, 0, 0, 7); ctx.fill();
-    circle(-26, -37, 8, '#d99c9c'); circle(26, -37, 8, '#d99c9c');
-    circle(-18, -82, 10, '#e0a8a5'); circle(18, -82, 10, '#e0a8a5');
-    circle(0, -66, 24, '#e6b0ac'); circle(-10, -69, 3.5, '#193040'); circle(10, -69, 3.5, '#193040');
-    ctx.fillStyle = '#cf898c'; ctx.beginPath(); ctx.ellipse(0, -58, 11, 8, 0, 0, 7); ctx.fill();
-    circle(-4, -58, 2, '#633940'); circle(4, -58, 2, '#633940');
-    ctx.strokeStyle = p.color; ctx.lineWidth = 4; ctx.beginPath(); ctx.arc(32, -28, 10, -.8, 3.8); ctx.stroke();
-    if (p.id === 0 || p.shield > 0) { ctx.strokeStyle = p.color; ctx.lineWidth = 1; ctx.beginPath(); ctx.ellipse(0, 5, 31, 11, 0, 0, 7); ctx.stroke(); }
+  ctx.fillStyle = '#0006'; ctx.beginPath(); ctx.ellipse(1, 4, 25, 9, 0, 0, Math.PI * 2); ctx.fill();
+  if (p.hp > 0 && (p.id === 0 || p.shield > 0)) { ctx.strokeStyle = p.color; ctx.lineWidth = p.id === 0 ? 1.5 : 1; ctx.beginPath(); ctx.ellipse(0, 4, 29, 11, 0, 0, Math.PI * 2); ctx.stroke(); }
+  sprites.draw(ctx, p, t);
+  if (p.hp > 0) {
+    const name = p.name + (p.id !== 0 && p.team === 0 ? ' · 隊友' : '');
+    ctx.font = 'bold 12px Arial'; ctx.textAlign = 'center'; ctx.fillStyle = '#09101b'; ctx.fillText(name, 1, -123);
+    ctx.fillStyle = p.id === 0 ? '#c6e6ff' : '#e0e1df'; ctx.fillText(name, 0, -124);
+    ctx.fillStyle = '#111b17'; ctx.fillRect(-23, -116, 46, 5); ctx.fillStyle = p.color; ctx.fillRect(-22, -115, 44 * p.hp / p.maxHp, 3);
   }
-  const name = p.name + (p.id !== 0 && p.team === 0 ? ' · 隊友' : '');
-  ctx.font = 'bold 12px Arial'; ctx.textAlign = 'center'; ctx.fillStyle = '#09101b'; ctx.fillText(name, 1, -103);
-  ctx.fillStyle = p.id === 0 ? '#c6e6ff' : '#e0e1df'; ctx.fillText(name, 0, -104);
-  ctx.fillStyle = '#111b17'; ctx.fillRect(-23, -96, 46, 5); ctx.fillStyle = p.color; ctx.fillRect(-22, -95, 44 * p.hp / p.maxHp, 3);
   ctx.restore();
 }
 function draw(t) {
-  const rendered3d = world3d?.render(game, camera) || false;
+  sprites.update(game);
   ctx.clearRect(0, 0, VIEW_W, VIEW_H);
   ctx.save(); ctx.translate(VIEW_W / 2, VIEW_H / 2);
   ctx.transform(PROJECTION.a, 0, PROJECTION.c, PROJECTION.d, 0, 0);
   ctx.translate(-camera.x - VIEW_W / 2, -camera.y - VIEW_H / 2);
-  if (!rendered3d) {
-    ctx.drawImage(floor, 0, 0);
-    ctx.save(); ctx.beginPath(); ctx.rect(RIVER.left + 6, 0, RIVER.right - RIVER.left - 7, H); ctx.clip();
-    for (let i = 0; i < 40; i++) {
-      const x = RIVER.left + 15 + (i * 29) % (RIVER.right - RIVER.left - 30), y = (i * 67 + t * (12 + i % 4)) % (H + 120) - 60;
-      ctx.strokeStyle = i % 3 ? '#71998a16' : '#a3c0a927'; ctx.lineWidth = 1;
-      ctx.beginPath(); ctx.moveTo(x, y); ctx.bezierCurveTo(x - 3, y + 13, x + 3, y + 30, x, y + 46); ctx.stroke();
-    }
-    ctx.restore();
+  ctx.drawImage(floor, 0, 0);
+  ctx.save(); ctx.beginPath(); ctx.rect(RIVER.left + 6, 0, RIVER.right - RIVER.left - 7, H); ctx.clip();
+  for (let i = 0; i < 40; i++) {
+    const x = RIVER.left + 15 + (i * 29) % (RIVER.right - RIVER.left - 30), y = (i * 67 + t * (12 + i % 4)) % (H + 120) - 60;
+    ctx.strokeStyle = i % 3 ? '#71998a16' : '#a3c0a927'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(x, y); ctx.bezierCurveTo(x - 3, y + 13, x + 3, y + 30, x, y + 46); ctx.stroke();
   }
+  ctx.restore();
   for (const merchant of game.merchants) {
     ctx.save(); ctx.translate(merchant.x, merchant.y);
     ctx.strokeStyle = '#dfc47c55'; ctx.lineWidth = 2; ctx.setLineDash([5, 8]);
@@ -163,24 +156,28 @@ function draw(t) {
     ctx.strokeStyle = '#d6ed9099'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(aim.x, aim.y, 11, 0, 7); ctx.stroke();
     ctx.beginPath(); ctx.moveTo(aim.x - 17, aim.y); ctx.lineTo(aim.x - 7, aim.y); ctx.moveTo(aim.x + 7, aim.y); ctx.lineTo(aim.x + 17, aim.y); ctx.moveTo(aim.x, aim.y - 17); ctx.lineTo(aim.x, aim.y - 7); ctx.stroke();
   }
-  if (!rendered3d) for (const h of game.hooks) {
+  for (const h of game.hooks) {
     const p = game.players[h.owner], angle = Math.atan2(h.y - p.y, h.x - p.x), d = Math.hypot(h.x - p.x, h.y - p.y);
     ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(angle);
     ctx.strokeStyle = '#111b15'; ctx.lineWidth = 5; ctx.beginPath(); ctx.moveTo(0, 2); ctx.lineTo(d, 2); ctx.stroke();
     ctx.strokeStyle = p.color; ctx.lineWidth = 3; ctx.setLineDash([7, 4]); ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(d, 0); ctx.stroke(); ctx.setLineDash([]);
     ctx.restore();
-    // The visible head is centered on, and bounded by, its actual world-space radius.
+    // Keep the visible blade inside its true world-space collision radius.
     ctx.save(); ctx.translate(h.x, h.y); ctx.rotate(Math.atan2(h.y - p.y, h.x - p.x));
-    const r = h.radius;
-    ctx.fillStyle = '#e3e4c921'; ctx.beginPath(); ctx.arc(0, 0, r, 0, Math.PI * 2); ctx.fill();
-    ctx.strokeStyle = p.color; ctx.lineWidth = Math.max(1.5, r * .2); ctx.lineCap = 'round';
-    ctx.beginPath(); ctx.moveTo(-r * .75, -r * .25); ctx.lineTo(r * .3, -r * .25);
-    ctx.bezierCurveTo(r * .95, -r * .25, r * .95, r * .7, r * .1, r * .7); ctx.lineTo(r * .1, r * .15); ctx.stroke(); ctx.restore();
+    const r = h.radius; ctx.scale(r, r);
+    const metal = ctx.createLinearGradient(-.7, -.8, .6, .7);
+    metal.addColorStop(0, '#c2ccd2'); metal.addColorStop(.2, p.color); metal.addColorStop(.58, p.team ? '#8f2738' : '#235d94'); metal.addColorStop(1, '#222c35');
+    ctx.fillStyle = metal; ctx.strokeStyle = '#14202b'; ctx.lineWidth = .12; ctx.lineJoin = 'round';
+    ctx.beginPath(); ctx.moveTo(-.38, .7); ctx.lineTo(-.13, .7); ctx.lineTo(-.08, .13);
+    ctx.bezierCurveTo(.66, .23, .82, -.35, .43, -.7); ctx.bezierCurveTo(-.1, -.9, -.7, -.59, -.66, -.05);
+    ctx.lineTo(-.21, -.39); ctx.bezierCurveTo(.37, -.53, .45, -.01, -.05, -.09); ctx.lineTo(-.37, -.09); ctx.closePath(); ctx.fill(); ctx.stroke();
+    ctx.strokeStyle = p.color; ctx.lineWidth = .12; ctx.beginPath(); ctx.moveTo(-.63, -.12); ctx.bezierCurveTo(-.51, -.65, .25, -.92, .53, -.55); ctx.stroke();
+    ctx.strokeStyle = '#e3eced'; ctx.lineWidth = .055; ctx.beginPath(); ctx.moveTo(-.55, -.25); ctx.bezierCurveTo(-.25, -.72, .2, -.76, .4, -.58); ctx.stroke(); ctx.restore();
   }
   ctx.restore();
   const actors = [
-    ...game.players.filter(p => p.hp > 0).map(p => ({ y: p.y, draw: () => drawPlayer(p, t, rendered3d) })),
-    ...game.merchants.map(m => ({ y: m.y, draw: () => drawMerchant(m, rendered3d) })),
+    ...game.players.filter(p => p.hp > 0 || sprites.dying(p.id, t)).map(p => ({ y: p.y, draw: () => drawPlayer(p, t) })),
+    ...game.merchants.map(m => ({ y: m.y, draw: () => drawMerchant(m) })),
   ];
   actors.sort((a, b) => a.y - b.y).forEach(actor => actor.draw());
   for (const p of particles) { ctx.globalAlpha = Math.max(0, p.life); circle(p.x, p.y, 2.5, p.color); } ctx.globalAlpha = 1;
@@ -204,7 +201,7 @@ function drawMinimap() {
   const corners = camera.corners(); mini.beginPath();
   corners.forEach((p, i) => i ? mini.lineTo(p.x / W * mw, p.y / H * mh) : mini.moveTo(p.x / W * mw, p.y / H * mh));
   mini.closePath(); mini.fill(); mini.stroke();
-  $('camera-mode').textContent = world3d?.available ? '3D 角色 · 固定跟隨 · 55° 高位斜俯視' : '相容繪圖模式 · 固定跟隨 · 55° 高位斜俯視';
+  $('camera-mode').textContent = '8 向角色圖 · 固定跟隨 · 55° 高位斜俯視';
 }
 function updateCamera() {
   camera.centerOn(game.players[0]);
@@ -269,13 +266,14 @@ function pause() {
   else if (state === 'paused' && !$('help').open) { state = 'playing'; $('overlay').hidden = true; canvas.focus(); }
   $('pause-button').textContent = state === 'paused' ? '▶' : 'Ⅱ';
 }
-$('play-button').onclick = () => {
+$('play-button').onclick = async () => {
+  if (!sprites.loaded) { await loadCharacters(); return; }
   if (state !== 'paused') {
     const input = $('kill-target');
     const mode = $('game-mode').value;
     if (mode === 'team' && !$('endless-mode').checked && !input.reportValidity()) return;
     game = new Arena(Math.random, { mode, teamSize: Number($('team-size').value), targetKills: mode === 'dummy' || $('endless-mode').checked ? null : input.valueAsNumber });
-    particles = []; numbers = []; $('feed').replaceChildren(); scoreCache = ''; shopIntent = null; camera.centerOn(game.players[0]);
+    particles = []; numbers = []; sprites.reset(); $('feed').replaceChildren(); scoreCache = ''; shopIntent = null; camera.centerOn(game.players[0]);
   }
   state = 'playing'; $('overlay').hidden = true; $('pause-button').textContent = 'Ⅱ'; canvas.focus();
 };
@@ -313,22 +311,21 @@ let characterPreview = null, characterPaused = false;
 $('character-button').onclick = () => {
   characterPaused = state === 'playing'; if (characterPaused) pause();
   $('character-viewer').showModal();
-  $('character-viewer-note').textContent = '拖曳角色可旋轉查看 · 第一版 3D 造型';
+  $('character-viewer-note').textContent = '拖曳切換八個方向 · 與對戰使用相同角色圖';
   for (const b of document.querySelectorAll('[data-preview-team]')) b.setAttribute('aria-pressed', String(b.dataset.previewTeam === '0'));
-  try { characterPreview = createPigPreview($('character-canvas')); }
-  catch { $('character-viewer-note').textContent = '此瀏覽器無法啟用 3D 預覽，可使用支援 WebGL 的桌面瀏覽器查看。'; }
+  characterPreview = createSpritePreview($('character-canvas'), sprites, direction => { $('character-direction').textContent = DIRECTIONS[direction]; });
 };
 $('close-character').onclick = () => $('character-viewer').close();
 $('character-viewer').addEventListener('close', () => {
   characterPreview?.dispose(); characterPreview = null;
-  // A canvas with a lost/disposed WebGL context cannot be reused for the next preview.
-  const old = $('character-canvas'), fresh = old.cloneNode(false); old.replaceWith(fresh);
   if (characterPaused && state === 'paused') pause(); characterPaused = false;
 });
 for (const button of document.querySelectorAll('[data-preview-team]')) button.onclick = () => {
   const team = Number(button.dataset.previewTeam); characterPreview?.setTeam(team);
   for (const b of document.querySelectorAll('[data-preview-team]')) b.setAttribute('aria-pressed', String(b === button));
 };
+$('character-prev').onclick = () => characterPreview?.setDirection(DIRECTIONS.indexOf($('character-direction').textContent) - 1);
+$('character-next').onclick = () => characterPreview?.setDirection(DIRECTIONS.indexOf($('character-direction').textContent) + 1);
 window.addEventListener('keydown', e => {
   if ($('help').open || $('shop').open || $('character-viewer').open) return;
   if (e.code === 'Escape' || e.code === 'KeyP') { if (!e.repeat) pause(); return; }
@@ -382,4 +379,5 @@ function frame(now) {
   }
   draw(game.time); drawMinimap(); hud(); requestAnimationFrame(frame);
 }
+loadCharacters();
 requestAnimationFrame(frame);

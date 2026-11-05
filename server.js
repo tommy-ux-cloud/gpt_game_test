@@ -4,13 +4,13 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
 const root = path.resolve(fileURLToPath(new URL('.', import.meta.url)));
-const types = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8' };
+const types = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.png': 'image/png' };
 const port = Number(process.env.PORT || 3000);
 http.createServer(async (req, res) => {
   try {
     const pathname = decodeURIComponent(new URL(req.url, 'http://localhost').pathname);
     const file = path.resolve(root, `.${pathname === '/' ? '/index.html' : pathname}`);
-    if (!file.startsWith(root + path.sep) || !['.html', '.js', '.css'].includes(path.extname(file))) {
+    if (!file.startsWith(root + path.sep) || !Object.hasOwn(types, path.extname(file))) {
       res.writeHead(404).end('Not found'); return;
     }
     res.setHeader('Content-Type', types[path.extname(file)]);

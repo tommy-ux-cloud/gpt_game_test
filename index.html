@@ -11,7 +11,7 @@
   <header class="topbar">
     <a class="brand" href="./" aria-label="鉤魂競技場首頁"><span class="brand-icon">↪</span> HOOK<span>ARENA</span><small>鉤魂競技場</small></a>
     <nav><span class="active">競技場</span><button id="character-button">角色展示</button><button id="help-button">遊戲說明 <span>↗</span></button></nav>
-    <span class="build"><i></i> 單人練習 · v0.11</span>
+    <span class="build"><i></i> 單人練習 · v0.12</span>
   </header>
   <main>
     <section class="heading"><div><div class="eyebrow">THE PIT IS WAITING</div><h1>一鉤，定勝負<span>。</span></h1><p>預判走位，甩出鎖鏈。把勝利拉到你面前。</p></div><div class="mode"><span class="mode-icon">⌖</span><div><strong>訓練競技場</strong><small id="mode-description">5 對 5 · 率先 30 擊殺</small></div></div></section>
@@ -47,12 +47,13 @@
   <dialog id="character-viewer" aria-labelledby="character-title"><button id="close-character" class="close" aria-label="關閉角色展示">×</button>
     <div class="eyebrow">CHARACTER WORKSHOP / 01</div><h2 id="character-title">沉沒庭院的鉤手</h2>
     <p class="character-intro">粉紅豬 · 黑衣與藍短褲 · 舊鐵護甲</p>
-    <canvas id="character-canvas" width="700" height="560" aria-label="粉紅豬 3D 角色，可拖曳旋轉查看"></canvas>
+    <canvas id="character-canvas" width="700" height="560" aria-label="粉紅豬八方向角色圖，可拖曳切換方向"></canvas>
+    <div class="character-directions"><button id="character-prev" aria-label="上一個方向">←</button><span id="character-direction">正面</span><button id="character-next" aria-label="下一個方向">→</button></div>
     <div class="character-teams"><button data-preview-team="0" aria-pressed="true">藍隊鉤頭</button><button data-preview-team="1" aria-pressed="false">紅隊鉤頭</button></div>
-    <p id="character-viewer-note">拖曳角色可旋轉查看 · 第一版 3D 造型</p>
+    <p id="character-viewer-note">拖曳切換八個方向 · 與對戰使用相同角色圖</p>
   </dialog>
   <dialog id="help"><button id="close-help" class="close" aria-label="關閉說明">×</button><div class="eyebrow">FIELD MANUAL</div><h2>讓每一鉤都有意義。</h2>
-    <p>粉紅豬角色使用 3D 網格、護甲材質與基本動作。藍鉤隊使用藍色鉤頭，赤鉤隊使用紅色鉤頭；可從頁首「角色展示」近看並旋轉角色。</p>
+    <p>粉紅豬使用依核准概念圖製作的八方向角色圖與雙畫格步態，以 2.5D 呈現。藍鉤隊使用藍色鉤頭，赤鉤隊使用紅色鉤頭；可從頁首「角色展示」近看並切換角色方向。</p>
     <p>滑鼠右鍵點地移動，Q 朝游標出鉤（瞄準角色身體），S 停止，Esc / P 暫停。鏡頭固定跟隨你的角色，只顯示全圖約 1/9；小地圖僅提供全圖資訊。</p>
     <p>開局可選 5v5、6v6、7v7 或 8v8，預設 5v5。你與隊友屬於左側藍鉤隊，對手屬於右側赤鉤隊；其餘 9–15 位角色由 AI 控制。中央直向河道不可步行，鉤子可以穿越；被拉過河後可在當地半場活動。重生只會出現在自己的隊伍半場。</p>
     <p>空鉤出去和回收途中都能命中；每次出鉤最多命中一人；鉤子回到身上後才開始冷卻。命中敵人造成基礎 55 傷害（可升級）並拉回，鉤中隊友只救援、不造成傷害。開局可自訂隊伍勝利擊殺數（預設 30），或選擇無限對戰。另有「靶場練習」模式，只有你與一位不移動、不攻擊的固定靶人，生命 100 萬、每秒回血 10 萬；被拉完會自動歸位，R 可重置靶人及出鉤冷卻。暫停後可重新設定並開始新局。</p>
