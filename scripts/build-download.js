@@ -6,7 +6,7 @@ const root = fileURLToPath(new URL('../', import.meta.url));
 const output = path.resolve(process.argv[2] || path.join(root, 'dist/Hook-Arena.html'));
 const [template, css, peerCode, peerLicense] = await Promise.all(['index.html', 'style.css', 'vendor/peerjs.min.js', 'vendor/PEERJS-LICENSE.txt'].map(name => readFile(path.join(root, name), 'utf8')));
 const styleTag = '<link rel="stylesheet" href="style.css">';
-const scriptTag = '<script type="module" src="game.js"></script>';
+const scriptTag = template.match(/<script type="module" src="game\.js(?:\?[^"]*)?"><\/script>/)?.[0];
 const peerTag = '<script src="vendor/peerjs.min.js" defer></script>';
 if (!template.includes(styleTag) || !template.includes(scriptTag) || !template.includes(peerTag)) throw new Error('Download template tags are missing');
 // Bundle the module graph and the exact PNGs used by the live game. Blob modules
@@ -19,7 +19,7 @@ async function collect(name) {
   const source = await readFile(path.join(root, name), 'utf8'); modules[name] = '';
   const dependencies = [];
   modules[name] = source.replace(/(['"])(assets\/pig-(?:blue|red)-atlas\.png)\1/g, (_, quote, asset) => quote + assets[asset] + quote).replace(/\bfrom\s*(['"])(\.{1,2}\/[^'"]+)\1/g, (match, quote, relative) => {
-    const dependency = path.posix.normalize(path.posix.join(path.posix.dirname(name), relative));
+    const dependency = path.posix.normalize(path.posix.join(path.posix.dirname(name), relative.split(/[?#]/)[0]));
     if (dependency.startsWith('../')) throw new Error('Module outside game root');
     dependencies.push(dependency);
     return `from ${quote}__HOOK_MODULE__/${dependency}${quote}`;

@@ -11,7 +11,7 @@
   <header class="topbar">
     <a class="brand" href="./" aria-label="鉤魂競技場首頁"><span class="brand-icon">↪</span> HOOK<span>ARENA</span><small>鉤魂競技場</small></a>
     <nav><span class="active">競技場</span><button id="network-button" disabled>連線對戰</button><button id="character-button" disabled>角色展示</button><button id="help-button">遊戲說明 <span>↗</span></button></nav>
-    <span class="build"><i></i> 單機／連線 · v0.13</span>
+    <span class="build"><i></i> 單機／連線 · v0.13.1</span>
   </header>
   <main>
     <section class="heading"><div><div class="eyebrow">THE PIT IS WAITING</div><h1>一鉤，定勝負<span>。</span></h1><p>預判走位，甩出鎖鏈。把勝利拉到你面前。</p></div><div class="mode"><span class="mode-icon">⌖</span><div><strong>訓練競技場</strong><small id="mode-description">5 對 5 · 率先 30 擊殺</small></div></div></section>
@@ -44,8 +44,9 @@
     <p class="room-note">房主負責對戰運算，空位由 AI 補上。免費配對服務協助連線；不需自行架設遊戲伺服器。</p>
     <div id="room-setup"><label>暱稱 <input id="room-name" maxlength="12" placeholder="選填，最多 12 字"></label><button id="room-create" class="primary">建立房間</button><p>建立時沿用開局的隊伍人數與擊殺目標。連線版使用隊伍對戰。</p><label>朋友的房號 <input id="room-join-code" maxlength="12" placeholder="8 位房號" autocomplete="off" spellcheck="false"></label><button id="room-join">加入房間</button></div>
     <p id="room-status" role="status" aria-live="polite">建立房間後，把房號分享給朋友。</p>
+    <div class="room-recovery"><button id="room-retry" hidden>重試連線</button><button id="room-diagnostics">複製連線資訊</button></div><pre id="room-diagnostic-text" hidden></pre>
     <div id="room-details" hidden><div class="room-code-line"><span>房號</span><strong id="room-code"></strong><button id="room-copy">複製</button></div><div id="room-roster"></div><button id="room-start" class="primary">開始對戰</button><button id="room-exit-dialog">離開房間</button></div>
-    <p class="room-note">房主請保持此分頁在前景；切到背景時對局暫停，關閉分頁則結束房間。部分網路需要 TURN 中繼，本版尚未提供；首次連線建議先測試。</p>
+    <p class="room-note">房主請保持此分頁在前景；切到背景時對局暫停，關閉分頁則結束房間。會嘗試官方預設中繼，但可用性仍取決於服務與網路；若連不上，可複製連線資訊回報。</p>
   </dialog>
   <dialog id="shop" aria-labelledby="shop-title">
     <button id="close-shop" class="close" aria-label="關閉商店">×</button>
@@ -70,6 +71,6 @@
     <p>基礎每秒回復 0.5 生命。八種升級均小幅累加：最大生命 +5、每秒回血 +0.1、移速 +3、鉤頭半徑 +0.75、冷卻縮短 3%（最低 0.8 秒）、鉤速 +25、鉤長 +25、鉤子傷害 +2。</p>
   </dialog>
   <script src="vendor/peerjs.min.js" defer></script>
-  <script type="module" src="game.js"></script>
+  <script type="module" src="game.js?v=0.13.1"></script>
 </body>
 </html>

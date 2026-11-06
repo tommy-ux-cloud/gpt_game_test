@@ -2,7 +2,7 @@ import { Arena, W, H, RIVER, UPGRADES, upgradeValue, SHOP_RANGE } from './engine
 import { Camera, VIEW_W, VIEW_H, PROJECTION, HOOK_HEIGHT } from './camera.js';
 import { PigSprites, createSpritePreview, DIRECTIONS } from './pig-sprites.js';
 import { ChainRenderer } from './chain-renderer.js';
-import { HostRoom, ClientRoom, applyCommand } from './room-network.js';
+import { HostRoom, ClientRoom, applyCommand } from './room-network.js?v=0.13.1';
 
 const $ = id => document.getElementById(id);
 const canvas = $('arena'), ctx = canvas.getContext('2d');
@@ -384,20 +384,25 @@ function adoptRoomGame(next, id) {
 }
 function roomChanged(session) {
   if (room !== session) return;
-  const key = [session.code, session.ready, session.started, session.epoch, session.hostHidden, session.ping, session.message, ...(session.game ? session.game.players.filter(p => session.game.humans.has(p.id)).map(p => `${p.id}:${p.name}`) : [])].join('|');
+  const key = [session.code, session.ready, session.signalReady, session.signalState, session.phase, session.closed, session.joined, session.everOpened, session.started, session.epoch, session.hostHidden, session.ping, session.message, ...(session.game ? session.game.players.filter(p => session.game.humans.has(p.id)).map(p => `${p.id}:${p.name}`) : [])].join('|');
   if (key === roomViewKey) return; roomViewKey = key;
-  $('room-setup').hidden = true; $('room-details').hidden = false; $('room-banner').hidden = false;
-  $('room-code').textContent = session.code;
+  $('room-setup').hidden = !session.closed; $('room-details').hidden = false; $('room-banner').hidden = false;
+  const confirmed = session.role === 'host' ? session.everOpened : session.joined;
+  $('room-code').textContent = confirmed ? session.code : session.role === 'host' ? (session.closed ? '尚未建立' : '等待建立') : (session.closed ? '尚未加入' : '連線中');
+  $('room-copy').disabled = !confirmed || !session.signalReady;
+  $('room-retry').hidden = !(session.closed || session.signalState === 'unavailable');
+  $('room-retry').textContent = session.role === 'client' && !session.joined ? '重試加入' : '重試連線';
+  if (session.closed) { $('room-create').disabled = false; $('room-join').disabled = false; }
   const humans = session.game ? [...session.game.humans] : [];
-  const status = session.hostHidden ? '房主分頁在背景，對局暫停中。' : !session.ready ? '正在連接配對服務…' : session.started ? 'P2P 對戰中' : session.role === 'host' ? '朋友可輸入房號加入；準備好後由你開始。' : '已加入房間，等待房主開始。';
+  const status = session.hostHidden ? '房主分頁在背景，對局暫停中。' : !session.everOpened ? '正在向配對服務註冊，完成前還不能分享房號。' : !session.signalReady ? '配對正在重連，房間保留。' : session.role === 'client' && !session.joined ? (session.phase === 'synchronizing' ? '已連上房主，正在同步對局…' : '配對服務已連上，正在與房主建立通道…') : session.started ? 'P2P 對戰中' : session.role === 'host' ? '朋友可輸入房號加入；準備好後由你開始。' : '已加入房間，等待房主開始。';
   $('room-status').textContent = session.message || status;
-  $('room-banner-text').textContent = `房號 ${session.code} · ${session.role === 'host' ? '你是房主' : '玩家'} · ${humans.length} 人連線${session.ping === null || session.ping === undefined ? '' : ` · ${session.ping} ms`}${session.hostHidden ? ' · 房主在背景' : ''}`;
+  $('room-banner-text').textContent = `${confirmed ? '房號 ' + session.code : session.role === 'host' ? '房間尚未建立' : '正在加入房間'} · ${session.role === 'host' ? '你是房主' : '玩家'} · ${confirmed ? humans.length + ' 人連線' : '尚未連線'}${session.ping === null || session.ping === undefined ? '' : ` · ${session.ping} ms`}${session.hostHidden ? ' · 房主在背景' : ''}`;
   $('room-roster').replaceChildren();
   if (session.game) for (let team = 0; team < 2; team++) {
     const line = document.createElement('div'), members = session.game.players.filter(p => p.team === team && session.game.humans.has(p.id));
     line.style.color = session.game.teams[team].color; line.textContent = `${session.game.teams[team].name}：${members.map(p => p.name + (p.id === localId ? '（你）' : '')).join('、') || '等待玩家'} · 其餘由 AI 補位`; $('room-roster').append(line);
   }
-  $('room-start').hidden = session.role !== 'host' || session.started;
+  $('room-start').hidden = session.role !== 'host' || session.started || session.closed;
   $('room-start').disabled = !session.ready;
   if (session.started && state === 'lobby') { state = 'playing'; $('overlay').hidden = true; $('room-dialog').close(); canvas.focus(); }
   else if (!session.started && session.game) { state = 'lobby'; $('overlay').hidden = true; if (!$('room-dialog').open) $('room-dialog').showModal(); }
@@ -411,20 +416,33 @@ function leaveRoom(reason = '') {
   $('room-status').textContent = reason || '建立房間後，把房號分享給朋友。';
   showOverlay(reason ? '房間已結束' : '回到競技場', reason || '可以繼續單機，或從「連線對戰」建立新的房間。', '進入競技場');
 }
+function retainRoomFailure(session, message) {
+  if (room !== session) return;
+  session.close(); session.phase = 'failed'; session.signalState = 'failed'; session.message = message;
+  roomChanged(session); if (!$('room-dialog').open) $('room-dialog').showModal();
+}
 async function connectRoom(host) {
-  if (!sprites.loaded || room) return;
+  if (!sprites.loaded) return;
+  if (room?.closed) { room = null; roomViewKey = ''; }
+  if (room) return;
   const input = $('kill-target');
   if (host && !$('endless-mode').checked && (!Number.isSafeInteger(input.valueAsNumber) || input.valueAsNumber < 1 || input.valueAsNumber > 9999)) { $('room-status').textContent = '請先在開局設定填入 1–9999 的隊伍勝利擊殺數，再建立房間。'; return; }
+  $('room-diagnostic-text').hidden = true; $('room-diagnostic-text').textContent = '';
   $('room-create').disabled = true; $('room-join').disabled = true; $('room-status').textContent = '正在連接配對服務…';
   const callbacks = { name: $('room-name').value, onGame: adoptRoomGame, onChange: roomChanged,
-    onEvents: received => { game.events.push(...received); events(); }, onError: message => { if (room) leaveRoom(message); } };
+    onEvents: received => { game.events.push(...received); events(); }, onError: message => {
+      if (!room) return;
+      if (room.role === 'host' && room.everOpened) { room.message = message; roomChanged(room); }
+      else if (room.role === 'client' && room.joined) leaveRoom(message);
+      else retainRoomFailure(room, message);
+    } };
   let candidate;
   try {
     candidate = host ? new HostRoom({ ...callbacks, teamSize: Number($('team-size').value), targetKills: $('endless-mode').checked ? null : input.valueAsNumber }) : new ClientRoom({ ...callbacks, code: $('room-join-code').value });
     room = candidate; state = 'lobby'; $('overlay').hidden = true; roomChanged(room);
     await candidate.open(); if (room === candidate) roomChanged(room);
   } catch (error) {
-    if (candidate && room === candidate) { leaveRoom(error.message); $('room-dialog').showModal(); }
+    if (candidate && room === candidate) retainRoomFailure(candidate, candidate.message || error.message);
     else if (!room) { $('room-create').disabled = false; $('room-join').disabled = false; $('room-status').textContent = error.message; }
   }
 }
@@ -434,8 +452,19 @@ $('room-dialog').addEventListener('close', () => { if (!room && roomDialogPaused
 $('room-create').onclick = () => connectRoom(true); $('room-join').onclick = () => connectRoom(false);
 $('room-leave').onclick = () => leaveRoom(); $('room-exit-dialog').onclick = () => leaveRoom();
 $('room-start').onclick = () => { if (room?.role === 'host') room.start(); };
-$('room-copy').onclick = async () => {
+$('room-retry').onclick = () => {
   if (!room) return;
+  if (room.closed) connectRoom(room.role === 'host');
+  else if (!room.retrySignaling()) { $('room-status').textContent = '配對連線已失效，請自行離開後重新建立房間。'; }
+};
+$('room-diagnostics').onclick = async () => {
+  if (!room) return;
+  const report = JSON.stringify(room.diagnostics(), null, 2);
+  $('room-diagnostic-text').textContent = report; $('room-diagnostic-text').hidden = false;
+  try { await navigator.clipboard.writeText(report); } catch {}
+};
+$('room-copy').onclick = async () => {
+  if (!room || !room.signalReady) return;
   try { await navigator.clipboard.writeText(room.code); $('room-status').textContent = '房號已複製，可以傳給朋友。'; }
   catch { const range = document.createRange(); range.selectNodeContents($('room-code')); getSelection().removeAllRanges(); getSelection().addRange(range); $('room-status').textContent = '請複製選取的房號。'; }
 };

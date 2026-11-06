@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import { Arena } from '../engine.js';
-import { applyCommand, snapshot, readSnapshot, HostRoom, playerName, normalizeRoom, validRoom, WIRE_VERSION } from '../room-network.js';
+import { applyCommand, snapshot, readSnapshot, HostRoom, ClientRoom, createPeer, playerName, normalizeRoom, validRoom, WIRE_VERSION } from '../room-network.js';
 
 test('a remote human stays idle until commanded and aims/moves independently of the host', () => {
   const g = new Arena(); g.humans.add(1); const a = { x: g.players[1].x, y: g.players[1].y };
@@ -82,4 +82,81 @@ test('8v8 rooms fill all 16 human slots evenly and reject an extra participant',
   for (const team of [0, 1]) assert.equal([...room.game.humans].filter(id => room.game.players[id].team === team).length, 8);
   const extra = new Connection('extra'); room.accept(extra); extra.emit('data', { type: 'hello', v: WIRE_VERSION, name: 'Extra' }); assert.equal(extra.last.type, 'rejected');
   extra.close(); room.close();
+});
+
+class FakeSignalPeer extends EventEmitter {
+  constructor() { super(); this.destroyed = false; this.disconnected = false; this.open = false; this.reconnectCalls = 0; }
+  registered() { this.disconnected = false; this.open = true; this.emit('open', 'test-peer'); }
+  disconnect() { if (this.disconnected) return; this.disconnected = true; this.open = false; this.emit('disconnected'); }
+  reconnect() { this.reconnectCalls++; this.disconnected = false; this.open = false; }
+  destroy() { this.destroyed = true; this.disconnect(); }
+  connect() { this.connection = new FakeGuestConnection('host'); return this.connection; }
+}
+class FakeGuestConnection extends EventEmitter {
+  constructor(peer = 'guest') { super(); this.peer = peer; this.open = true; this.messages = []; }
+  send(message) { this.messages.push(message); }
+  close() { this.open = false; this.emit('close'); }
+}
+test('one failed guest never destroys a registered empty or occupied host room', async () => {
+  const peer = new FakeSignalPeer(), errors = [], room = new HostRoom({ code: 'ABCD2345', makePeer: () => peer, onError: e => errors.push(e) });
+  const opening = room.open(); peer.registered(); await opening;
+  try {
+    peer.emit('error', { type: 'peer-unavailable' });
+    assert.equal(room.closed, false); assert.equal(room.signalReady, true);
+    const guest = new FakeGuestConnection(); room.accept(guest); guest.emit('data', { type: 'hello', v: WIRE_VERSION, name: 'Guest' });
+    peer.emit('error', { type: 'webrtc' });
+    assert.equal(room.members.size, 1); assert.equal(guest.open, true); assert.equal(room.ready, true); assert.equal(peer.destroyed, false); assert.equal(errors.length, 0);
+  } finally { room.close(); }
+});
+test('signaling loss preserves the match and reconnects the same room without dropping a guest', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'setInterval'] });
+  const peer = new FakeSignalPeer(), errors = [], room = new HostRoom({ code: 'ABCD2345', makePeer: () => peer, onError: e => errors.push(e) });
+  const opening = room.open(); peer.registered(); await opening;
+  const guest = new FakeGuestConnection(); room.accept(guest); guest.emit('data', { type: 'hello', v: WIRE_VERSION, name: 'Guest' });
+  const game = room.game; room.game.players[0].gold = 7;
+  try {
+    peer.emit('error', { type: 'network' }); peer.disconnect();
+    assert.equal(room.signalReady, false); assert.equal(room.closed, false); assert.equal(room.ready, true);
+    t.mock.timers.tick(1000); assert.equal(peer.reconnectCalls, 1);
+    peer.registered();
+    assert.equal(room.signalReady, true); assert.equal(room.code, 'ABCD2345'); assert.equal(room.game, game); assert.equal(room.game.players[0].gold, 7); assert.equal(guest.open, true); assert.equal(room.members.size, 1); assert.equal(errors.length, 0);
+  } finally { room.close(); t.mock.timers.reset(); }
+});
+test('failed signaling retries are bounded, can be retried manually, and close cancels timers', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'setInterval'] });
+  const peer = new FakeSignalPeer(), room = new HostRoom({ code: 'ABCD2345', makePeer: () => peer, reconnectDelays: [10, 20], reconnectTimeoutMs: 15 });
+  const opening = room.open(); peer.registered(); await opening;
+  try {
+    peer.disconnect(); t.mock.timers.tick(10); assert.equal(peer.reconnectCalls, 1);
+    t.mock.timers.tick(15); t.mock.timers.tick(20); assert.equal(peer.reconnectCalls, 2);
+    t.mock.timers.tick(15); assert.equal(room.signalState, 'unavailable'); assert.equal(room.closed, false);
+    assert.equal(room.retrySignaling(), true); t.mock.timers.tick(0); assert.equal(peer.reconnectCalls, 3);
+    room.close(); t.mock.timers.tick(100000); assert.equal(peer.reconnectCalls, 3);
+  } finally { room.close(); t.mock.timers.reset(); }
+});
+test('a registration timeout never reports a usable room and ignores late open events', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'setInterval'] });
+  const peer = new FakeSignalPeer(), room = new HostRoom({ code: 'ABCD2345', makePeer: () => peer, openTimeoutMs: 1000 });
+  const failure = assert.rejects(room.open(), /房間尚未建立/);
+  t.mock.timers.tick(1000); await failure; peer.registered();
+  assert.equal(room.everOpened, false); assert.equal(room.signalReady, false); assert.equal(room.ready, false); assert.equal(room.closed, true);
+  room.close(); t.mock.timers.reset();
+});
+test('a failed initial guest connection rejects joining without announcing an ended match', async () => {
+  const peer = new FakeSignalPeer(), errors = [], client = new ClientRoom({ code: 'ABCD2345', makePeer: () => peer, onError: e => errors.push(e) });
+  const failure = assert.rejects(client.open(), /尚未與房主建立連線/); peer.registered(); await Promise.resolve();
+  peer.connection.close(); await failure;
+  assert.equal(client.joined, false); assert.equal(client.phase, 'failed'); assert.equal(errors.length, 0); assert.equal(client.closed, true);
+});
+test('public PeerJS defaults retain TURN and get TCP fallbacks without changing upstream configuration', () => {
+  const before = { Peer: globalThis.Peer, RTCPeerConnection: globalThis.RTCPeerConnection, peerjs: globalThis.peerjs };
+  const defaults = { iceServers: [{ urls: 'stun:example.test' }, { urls: ['turn:relay.example.test:3478'], username: 'sdk-public-user', credential: 'sdk-public-value' }] };
+  try {
+    globalThis.RTCPeerConnection = function() {}; globalThis.peerjs = { util: { defaultConfig: defaults } };
+    globalThis.Peer = class { constructor(id, options) { this.options = options; } };
+    const peer = createPeer('test');
+    assert.equal(peer.options.secure, true);
+    assert.ok(peer.options.config.iceServers.some(s => s.urls === 'turn:relay.example.test:3478?transport=tcp' && s.credential === 'sdk-public-value'));
+    assert.equal(defaults.iceServers.length, 2); assert.equal(defaults.iceServers[1].urls.length, 1);
+  } finally { for (const [key, value] of Object.entries(before)) { if (value === undefined) delete globalThis[key]; else globalThis[key] = value; } }
 });

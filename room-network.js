@@ -11,12 +11,17 @@ export function validRoom(value) { return /^[A-HJ-NP-Z2-9]{8}$/.test(value); }
 export function playerName(value, fallback = '玩家') { return String(value ?? '').replace(/[^\p{L}\p{N} _-]/gu, '').trim().slice(0, 12) || fallback; }
 export function createPeer(id) {
   if (!globalThis.Peer || !globalThis.RTCPeerConnection) throw new Error('這個瀏覽器無法啟用 P2P，請使用最新版 Chrome、Edge 或 Firefox。');
-  return new globalThis.Peer(id, { debug: 0, config: { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:stun.cloudflare.com:3478' }] } });
+  // Use the public ICE service configuration shipped by this PeerJS version.
+  // The previous STUN-only override accidentally disabled its built-in TURN.
+  const defaults = globalThis.peerjs?.util?.defaultConfig || {};
+  const servers = defaults.iceServers || [{ urls: 'stun:stun.l.google.com:19302' }];
+  const tcp = servers.flatMap(server => (Array.isArray(server.urls) ? server.urls : [server.urls]).filter(url => typeof url === 'string' && url.startsWith('turn:') && !url.includes('?')).map(url => ({ ...server, urls: url + '?transport=tcp' })));
+  return new globalThis.Peer(id, { debug: 0, secure: true, pingInterval: 5000, config: { ...defaults, iceServers: [...servers, ...tcp, { urls: 'stun:stun.cloudflare.com:3478' }] } });
 }
 function failure(error) {
-  if (error?.type === 'peer-unavailable') return '找不到房間，請核對房號並確認房主仍在線上。';
+  if (error?.type === 'peer-unavailable') return '找不到已註冊的房間；請確認房號及房主畫面已顯示「可以加入」。';
   if (error?.type === 'unavailable-id') return '這個房號已被使用，請重新建立房間。';
-  if (error?.type === 'webrtc') return '無法建立 P2P 直連；這個網路可能需要中繼，本版尚未提供 TURN 中繼。';
+  if (error?.type === 'webrtc') return '無法與房主建立資料通道；直連或官方預設中繼均可能受網路限制，可重試加入。';
   return '配對服務或網路連線失敗，請稍後重試；單機模式仍可使用。';
 }
 function send(connection, message, state = false) {
@@ -69,26 +74,85 @@ export function applyCommand(game, id, command) {
 class BaseRoom {
   constructor(options) {
     this.options = options; this.makePeer = options.makePeer || createPeer; this.onChange = options.onChange || noOp; this.onGame = options.onGame || noOp; this.onEvents = options.onEvents || noOp; this.onError = options.onError || noOp;
-    this.closed = false; this.ready = false; this.started = false; this.epoch = 0; this.localId = 0; this.message = ''; this.connections = new Map(); this.name = playerName(options.name);
+    this.closed = false; this.ready = false; this.signalReady = false; this.everOpened = false; this.signalState = 'connecting'; this.phase = 'signaling'; this.joined = false; this.reconnectAttempts = 0;
+    this.started = false; this.epoch = 0; this.localId = 0; this.message = ''; this.connections = new Map(); this.name = playerName(options.name);
   }
   changed() { this.onChange(this); }
+  peerCreated() {}
   connectPeer(id) {
     return new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => { reject(new Error('配對服務連線逾時，請稍後重試。')); this.close(); }, 18000);
-      this.openTimer = timeout; this.rejectOpen = reject;
-      try { this.peer = this.makePeer(id); } catch (error) { clearTimeout(timeout); reject(error); return; }
-      this.peer.on('open', () => { clearTimeout(timeout); if (this.closed) return; this.ready = true; this.rejectOpen = null; resolve(); });
-      this.peer.on('error', error => {
-        const message = failure(error); this.message = message;
-        if (!this.ready) { clearTimeout(timeout); reject(new Error(message)); }
-        else if (['network', 'socket-error', 'server-error'].includes(error?.type) && [...this.connections.values()].some(c => c.open)) { this.message = '配對服務暫時中斷；已建立的 P2P 連線仍可使用。'; this.changed(); }
-        else this.onError(message);
+      this.rejectOpen = reject;
+      const failInitial = message => {
+        if (this.closed || this.everOpened) return;
+        this.rejectOpen = null; this.close(); this.signalState = 'failed'; this.phase = 'failed'; this.message = message;
+        reject(new Error(message)); this.changed();
+      };
+      this.openTimer = setTimeout(() => failInitial('配對服務連線逾時，房間尚未建立。請按「重試連線」。'), this.options.openTimeoutMs ?? 18000);
+      try { this.peer = this.makePeer(id); this.peerCreated(this.peer); } catch (error) { failInitial(error.message); return; }
+      this.peer.on('open', () => {
+        if (this.closed) return;
+        clearTimeout(this.openTimer); clearTimeout(this.reconnectTimer); clearTimeout(this.reconnectWatchdog);
+        this.reconnectTimer = this.reconnectWatchdog = null; this.reconnectAttempts = 0;
+        this.signalReady = this.ready = this.everOpened = true; this.signalState = 'registered'; this.message = ''; this.rejectOpen = null;
+        if (!this.joined) this.phase = this.role === 'host' ? (this.started ? 'connected' : 'lobby') : 'connecting-host';
+        resolve(); this.changed();
       });
-      this.peer.on('disconnected', () => { if (!this.closed) { this.message = '配對服務暫時中斷；已建立的 P2P 連線仍可使用。'; this.changed(); } });
+      this.peer.on('error', error => {
+        if (this.closed) return;
+        this.lastErrorType = error?.type || 'unknown';
+        if (!this.everOpened) { failInitial(failure(error)); return; }
+        if (this.role === 'host' && ['peer-unavailable', 'webrtc', 'negotiation-failed', 'connection-closed'].includes(error?.type)) {
+          // A failed guest is not a failed room. PeerJS emits some guest errors
+          // on the Peer itself, rather than only on the DataConnection.
+          if (this.signalReady) this.message = '有玩家未能連上；房間仍開放，可以重新加入。';
+          this.changed(); return;
+        }
+        if (['network', 'socket-error', 'socket-closed', 'server-error', 'unavailable-id'].includes(error?.type)) { this.signalLost(); return; }
+        if (this.role === 'host' || (this.joined && this.connection?.open)) { this.message = '配對發生錯誤，房間保留；已有的資料通道仍可使用。'; this.changed(); return; }
+        if (!this.joined) this.failJoining?.(failure(error));
+        else this.onError(failure(error));
+      });
+      this.peer.on('disconnected', () => { if (!this.closed && this.everOpened) this.signalLost(); });
     });
   }
+  signalLost() {
+    if (this.closed) return;
+    this.signalReady = false; clearTimeout(this.reconnectWatchdog); this.reconnectWatchdog = null;
+    this.queueReconnect();
+  }
+  queueReconnect(immediate = false) {
+    if (this.closed || this.signalReady || this.reconnectTimer) return;
+    const delays = this.options.reconnectDelays || [1000, 2500, 5000];
+    if (this.peer?.destroyed || this.reconnectAttempts >= delays.length) {
+      this.signalState = 'unavailable'; this.message = '配對暫時無法恢復，房間與既有對局保留；可按「重試連線」或自行離開。'; this.changed(); return;
+    }
+    this.signalState = 'reconnecting'; this.message = '配對服務中斷，正在自動重連；房間與既有對局保留。'; this.changed();
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null; if (this.closed || this.signalReady) return;
+      this.reconnectAttempts++;
+      this.reconnectWatchdog = setTimeout(() => {
+        this.reconnectWatchdog = null; if (this.closed || this.signalReady) return;
+        if (!this.peer.disconnected) this.peer.disconnect();
+        this.queueReconnect();
+      }, this.options.reconnectTimeoutMs ?? 10000);
+      try { if (this.peer.disconnected) this.peer.reconnect(); }
+      catch { clearTimeout(this.reconnectWatchdog); this.reconnectWatchdog = null; this.queueReconnect(); }
+    }, immediate ? 0 : delays[this.reconnectAttempts]);
+  }
+  retrySignaling() {
+    if (this.closed || !this.everOpened || this.peer?.destroyed) return false;
+    clearTimeout(this.reconnectTimer); clearTimeout(this.reconnectWatchdog); this.reconnectTimer = this.reconnectWatchdog = null;
+    this.signalReady = false; this.reconnectAttempts = 0;
+    if (!this.peer.disconnected) this.peer.disconnect();
+    this.queueReconnect(true); return true;
+  }
+  diagnostics() {
+    return { build: '0.13.1', role: this.role, phase: this.phase, registered: this.signalReady, roomReady: this.ready, joined: this.joined, signaling: this.signalState, error: this.lastErrorType || null, ice: this.connection?.peerConnection?.iceConnectionState || null, dataOpen: !!this.connection?.open, retry: this.reconnectAttempts };
+  }
   close() {
-    this.closed = true; this.ready = false; this.rejectOpen?.(new Error('連線已取消。')); this.rejectOpen = null; this.rejectJoin?.(new Error('連線已取消。')); this.rejectJoin = null; clearTimeout(this.openTimer); clearTimeout(this.joinTimer); clearInterval(this.timer);
+    this.closed = true; this.ready = this.signalReady = false; this.rejectOpen?.(new Error('連線已取消。')); this.rejectOpen = null; this.rejectJoin?.(new Error('連線已取消。')); this.rejectJoin = null;
+    clearTimeout(this.openTimer); clearTimeout(this.joinTimer); clearTimeout(this.reconnectTimer); clearTimeout(this.reconnectWatchdog); clearInterval(this.timer);
+    this.reconnectTimer = this.reconnectWatchdog = null;
     for (const connection of this.connections.values()) connection.close(); this.connections.clear(); this.peer?.destroy();
   }
 }
@@ -105,9 +169,9 @@ export class HostRoom extends BaseRoom {
     for (const member of this.members.values()) { this.game.humans.add(member.id); this.game.players[member.id].name = member.name; }
     this.epoch++; this.started = false; this.pendingEvents = []; this.onGame(this.game, 0, this.epoch); this.changed();
   }
+  peerCreated(peer) { peer.on('connection', connection => this.accept(connection)); }
   async open() {
     await this.connectPeer(PREFIX + this.code);
-    this.peer.on('connection', connection => this.accept(connection));
     this.lastTick = clock(); this.lastBroadcast = 0;
     this.timer = setInterval(() => this.tick(), 20); this.changed(); return this;
   }
@@ -125,7 +189,7 @@ export class HostRoom extends BaseRoom {
         const p = this.game.players.find(p => p.team === team && !this.game.humans.has(p.id));
         if (!p) { connection.close(); return; }
         const member = { id: p.id, name: playerName(message.name, `玩家${p.id + 1}`), count: 0, window: clock() };
-        this.members.set(connection.peer, member); this.game.humans.add(p.id); p.name = member.name; clearTimeout(timeout);
+        this.members.set(connection.peer, member); if (this.signalReady) this.message = ''; this.game.humans.add(p.id); p.name = member.name; clearTimeout(timeout);
         send(connection, { type: 'welcome', v: WIRE_VERSION, id: p.id }); this.broadcast(true); this.changed();
       } else if (message.type === 'command' && this.started && message.epoch === this.epoch) {
         const member = this.members.get(connection.peer); if (!member) return;
@@ -141,7 +205,7 @@ export class HostRoom extends BaseRoom {
     };
     connection.on('close', drop); connection.on('error', () => { drop(); connection.close(); });
   }
-  start() { if (!this.ready || this.closed) return; this.started = true; this.lastTick = clock(); this.broadcast(true); this.changed(); }
+  start() { if (!this.ready || this.closed) return; this.started = true; this.phase = 'connected'; if (this.signalReady) this.message = ''; this.lastTick = clock(); this.broadcast(true); this.changed(); }
   rematch() { this.newGame(); this.broadcast(true); }
   command(command) { return this.started && applyCommand(this.game, 0, command); }
   tick(now = clock()) {
@@ -170,10 +234,12 @@ export class ClientRoom extends BaseRoom {
     await this.connectPeer();
     return new Promise((resolve, reject) => {
       this.rejectJoin = reject;
-      this.joinTimer = setTimeout(() => { reject(new Error('房間連線逾時。請核對房號；若網路需要 TURN 中繼，這個版本可能無法直連。')); this.close(); }, 20000);
+      this.failJoining = message => { if (this.closed || this.joined) return; this.rejectJoin = null; this.close(); this.phase = 'failed'; this.signalState = 'failed'; this.message = message; reject(new Error(message)); this.changed(); };
+      this.joinTimer = setTimeout(() => this.failJoining('已連上配對服務，但仍無法與房主建立通道。請確認房主已可加入，再重試；網路或中繼服務也可能受限。'), this.options.joinTimeoutMs ?? 25000);
       const connection = this.peer.connect(PREFIX + this.code, { reliable: true, serialization: 'json', metadata: { v: WIRE_VERSION } });
+      if (!connection) { this.failJoining('配對連線剛中斷，尚未連上房主，請按「重試加入」。'); return; }
       this.connection = connection; this.connections.set('host', connection);
-      connection.on('open', () => send(connection, { type: 'hello', v: WIRE_VERSION, name: this.name }));
+      connection.on('open', () => { this.phase = 'synchronizing'; this.changed(); send(connection, { type: 'hello', v: WIRE_VERSION, name: this.name }); });
       connection.on('data', message => {
         if (this.closed || !message || typeof message !== 'object') return;
         if (message.type === 'welcome' && message.v === WIRE_VERSION && Number.isInteger(message.id) && message.id >= 0 && message.id < 16) { this.localId = message.id; return; }
@@ -188,6 +254,7 @@ export class ClientRoom extends BaseRoom {
             if (previous) this.game.players.forEach((p, i) => { if (previous[i].hp > 0 && p.hp > 0 && Math.hypot(p.x - previous[i].x, p.y - previous[i].y) < 300) { p.x = previous[i].x; p.y = previous[i].y; } });
             this.headTargets = new Map(this.game.hooks.map(h => [h.netId, { x: h.x, y: h.y }]));
             this.game.hooks.forEach(h => { const old = oldHeads.get(h.netId); if (old) { h.x = old.x; h.y = old.y; } });
+            this.joined = true; this.phase = 'connected';
             this.epoch = message.epoch; this.sequence = message.sequence; this.started = message.started; this.hostHidden = message.hostHidden; this.lastState = clock();
             if (changed) this.onGame(this.game, this.localId, this.epoch);
             this.changed(); clearTimeout(this.joinTimer); this.rejectJoin = null; resolve(this);
@@ -195,7 +262,10 @@ export class ClientRoom extends BaseRoom {
         } else if (message.type === 'events' && message.epoch === this.epoch && Array.isArray(message.events)) this.onEvents(message.events.slice(0, 100));
         else if (message.type === 'pong' && Number.isFinite(message.time)) { this.ping = Math.round(clock() - message.time); this.changed(); }
       });
-      const lost = () => { if (!this.closed) { clearTimeout(this.joinTimer); reject(new Error('與房主的連線已中斷。')); this.onError('與房主的連線已中斷，房間已結束；目前不支援房主轉移。'); this.close(); } };
+      const lost = error => { if (!this.closed) {
+        if (!this.joined) { this.failJoining(error?.type === 'negotiation-failed' ? failure({ type: 'webrtc' }) : '尚未與房主建立連線，並非已開始的對局結束。請確認房主已可加入，再重試。'); return; }
+        clearTimeout(this.joinTimer); this.onError('與房主的連線已中斷，房間已結束；目前不支援房主轉移。'); this.close();
+      } };
       connection.on('close', lost); connection.on('error', lost);
       this.timer = setInterval(() => {
         if (this.game && clock() - this.lastState > 15000) { lost(); return; }
