@@ -8,6 +8,12 @@
 
 目前 **69 項規則／鏡頭／角色圖／連線模型測試通過**。本環境 Chromium 已驗證紅藍鉤頭實際像素、八方向／拖曳、雙畫格、胸口 Q 命中／回收冷卻／R 重置、右鍵／S、5v5／8v8、商店與展示後繼續。兩種人數各 45 個影格短測約 60 FPS，這不是所有電腦上的效能保證。舊版 SwiftShader 3D 曾僅約 1–2 FPS，因此本版已移除 Three.js 執行路徑。
 
+## 下載交付修正
+
+使用者回報上一則聊天下載連結顯示「無法載入此檔案」。原本 `/workspace/artifacts/Hook-Arena-v0.13.html` 仍存在，重新執行 build 後位元內容也完全一致；尚不能據此判定使用者端錯誤的確切原因。為排除聊天介面不能開啟工作區 HTML 連結的問題，新增 `downloads/Hook-Arena-v0.13.zip`，公開保存在 GitHub。內含自足的 `Hook-Arena.html` 及使用說明，無需 Node.js。ZIP CRC 檢查通過，解壓後 HTML 與 build 輸出位元相同。
+
+交付優先使用 GitHub 的 raw ZIP 連結，不要只提供 `/workspace/artifacts` 路徑。未來遊戲改版需重新 build，更新對應版本 ZIP 及 README 下載連結，不能讓 ZIP 長期停在舊版。這是發行檔，不是整個 repo 原始碼 ZIP。
+
 ## P2P 房間與金屬鎖鏈（v0.13）
 
 使用者先指出鉤繩過於突兀、單調，接著要求可嘗試使用房主資源的 P2P 連線。已明確選擇「輸入房號，使用免費配對服務」。兩件事都已實作。

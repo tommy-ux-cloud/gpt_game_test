@@ -4,6 +4,12 @@
 
 換機或交接給新的 Codex 時，先讀 [AGENTS.md](AGENTS.md) 與 [HANDOFF.md](HANDOFF.md)，確認 checkout 已同步最新 `main`；不要假設舊環境的程序和下載檔會自動同步。
 
+## 下載遊玩
+
+[下載 v0.13 ZIP](https://github.com/tommy-ux-cloud/gpt_game_test/raw/refs/heads/main/downloads/Hook-Arena-v0.13.zip)，先解壓縮，再以最新版 Chrome、Edge 或 Firefox 開啟其中的 `Hook-Arena.html`，不用安裝 Node.js。單機可離線，連線模式仍需網路。
+
+這是已打包的遊戲，與 GitHub「Code → Download ZIP」下載的原始碼不同。聊天室的雲端工作區檔案連結可能無法預覽或下載 HTML，請優先使用上方 GitHub ZIP 連結。
+
 ## 開發
 
 需要 Node.js 20 以上版本；不需安裝依賴。使用瀏覽器 Canvas 2D 與本地 PNG，不需要 WebGL 或執行時 CDN。PeerJS 1.5.5 已保存在 `vendor/`，MIT 授權見 [vendor/README.md](vendor/README.md)。
